@@ -5,6 +5,9 @@ Owned by: Gentille Uwera
 """
 import logging
 from datetime import datetime, timezone
+
+import psycopg
+
 from app.canvas import CanvasClient, COURSE_ID, TEST_STUDENT_ID, get_roadmap_deadline
 
 log = logging.getLogger(__name__)
@@ -23,8 +26,9 @@ def calc_days_from_deadline(due_at: str | None,
     return round((due - sub).total_seconds() / 86400, 2)
 
 
-def sync_students(client: CanvasClient, conn) -> int:
+def sync_students(client: CanvasClient, conn: psycopg.Connection) -> int:
     """Pull the 10 real students only. No instructors, no test student."""
+    cur = conn.cursor()
     count = 0
     for user in client.get_paginated(
         f"/api/v1/courses/{COURSE_ID}/users",
@@ -35,10 +39,10 @@ def sync_students(client: CanvasClient, conn) -> int:
         email = (user.get("email")
                  or user.get("sis_user_id")
                  or user.get("login_id"))
-        conn.execute(
+        cur.execute(
             """
             INSERT INTO users (user_id, email, sis_user_id, login_id, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT(user_id) DO UPDATE SET
                 email=excluded.email,
                 sis_user_id=excluded.sis_user_id,
@@ -54,17 +58,18 @@ def sync_students(client: CanvasClient, conn) -> int:
     return count
 
 
-def sync_assignments(client: CanvasClient, conn) -> int:
+def sync_assignments(client: CanvasClient, conn: psycopg.Connection) -> int:
+    cur = conn.cursor()
     count = 0
     for a in client.get_paginated(
         f"/api/v1/courses/{COURSE_ID}/assignments"
     ):
-        conn.execute(
+        cur.execute(
             """
             INSERT INTO assignments
                 (assignment_id, course_id, name, due_at,
                  points_possible, due_at_roadmap, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(assignment_id) DO UPDATE SET
                 name=excluded.name,
                 due_at_roadmap=excluded.due_at_roadmap,
@@ -80,7 +85,8 @@ def sync_assignments(client: CanvasClient, conn) -> int:
     return count
 
 
-def sync_submissions(client: CanvasClient, conn) -> int:
+def sync_submissions(client: CanvasClient, conn: psycopg.Connection) -> int:
+    cur = conn.cursor()
     count = 0
     for s in client.get_paginated(
         f"/api/v1/courses/{COURSE_ID}/students/submissions",
@@ -90,19 +96,20 @@ def sync_submissions(client: CanvasClient, conn) -> int:
             continue
         if not s.get("assignment_id") or not s.get("user_id"):
             continue
-        row = conn.execute(
-            "SELECT due_at_roadmap FROM assignments WHERE assignment_id = ?",
+        cur.execute(
+            "SELECT due_at_roadmap FROM assignments WHERE assignment_id = %s",
             (s["assignment_id"],)
-        ).fetchone()
+        )
+        row = cur.fetchone()
         due = row[0] if row else None
         dfd = calc_days_from_deadline(due, s.get("submitted_at"))
-        conn.execute(
+        cur.execute(
             """
             INSERT INTO submissions
                 (submission_id, assignment_id, user_id, score, grade,
                  submitted_at, graded_at, workflow_state,
                  late, missing, days_from_deadline, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(assignment_id, user_id) DO UPDATE SET
                 score=excluded.score,
                 submitted_at=excluded.submitted_at,
