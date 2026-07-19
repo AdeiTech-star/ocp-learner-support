@@ -85,6 +85,93 @@ def sync_assignments(client: CanvasClient, conn: psycopg.Connection) -> int:
     return count
 
 
+def sync_enrollments(client: CanvasClient, conn: psycopg.Connection) -> int:
+    cur = conn.cursor()
+    count = 0
+    for e in client.get_paginated(
+        f"/api/v1/courses/{COURSE_ID}/enrollments",
+        params={"type[]": "StudentEnrollment"}
+    ):
+        user_id = (e.get("user") or {}).get("id")
+        grades = e.get("grades") or {}
+        cur.execute(
+            """
+            INSERT INTO enrollments
+                (enrollment_id, course_id, user_id, type, role, enrollment_state,
+                 last_activity_at, total_activity_time, current_score, final_score,
+                 created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(enrollment_id) DO UPDATE SET
+                type=excluded.type,
+                role=excluded.role,
+                enrollment_state=excluded.enrollment_state,
+                last_activity_at=excluded.last_activity_at,
+                total_activity_time=excluded.total_activity_time,
+                current_score=excluded.current_score,
+                final_score=excluded.final_score,
+                updated_at=excluded.updated_at
+            """,
+            (e.get("id"), COURSE_ID, user_id, e.get("type"),
+             e.get("role"), e.get("enrollment_state"),
+             e.get("last_activity_at"), e.get("total_activity_time"),
+             grades.get("current_score"), grades.get("final_score"),
+             e.get("created_at"), e.get("updated_at"))
+        )
+        count += 1
+    conn.commit()
+    log.info("Synced %s enrollments", count)
+    return count
+
+
+def sync_student_summaries(client: CanvasClient, conn: psycopg.Connection) -> int:
+    cur = conn.cursor()
+    count = 0
+    for s in client.get_paginated(
+        f"/api/v1/courses/{COURSE_ID}/analytics/student_summaries"
+    ):
+        if s.get("id") == TEST_STUDENT_ID:
+            continue
+        td = s.get("tardiness_breakdown") or {}
+        cur.execute(
+            """
+            INSERT INTO student_summaries
+                (user_id, page_views, max_page_views, participations,
+                 max_participations, tardiness_on_time, tardiness_late,
+                 tardiness_missing, tardiness_floating, tardiness_total, pulled_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(user_id) DO UPDATE SET
+                page_views=excluded.page_views,
+                participations=excluded.participations,
+                tardiness_on_time=excluded.tardiness_on_time,
+                tardiness_late=excluded.tardiness_late,
+                tardiness_missing=excluded.tardiness_missing,
+                tardiness_floating=excluded.tardiness_floating,
+                tardiness_total=excluded.tardiness_total,
+                pulled_at=excluded.pulled_at
+            """,
+            (s["id"], s.get("page_views"), s.get("max_page_views"),
+             s.get("participations"), s.get("max_participations"),
+             td.get("on_time"), td.get("late"), td.get("missing"),
+             td.get("floating"), td.get("total"), utcnow())
+        )
+        count += 1
+    conn.commit()
+    log.info("Synced %s student summaries", count)
+    return count
+
+
+def deduplicate_gate_calendar(conn: psycopg.Connection):
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM gate_calendar
+        WHERE gate_id NOT IN (
+            SELECT MIN(gate_id) FROM gate_calendar GROUP BY gate_name
+        )
+    """)
+    conn.commit()
+    log.info("Gate calendar deduplicated")
+
+
 def sync_submissions(client: CanvasClient, conn: psycopg.Connection) -> int:
     cur = conn.cursor()
     count = 0
