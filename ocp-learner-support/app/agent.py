@@ -20,7 +20,7 @@ def get_llm():
 PERSONALIZE_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
      "You rewrite templated learner support messages to sound warm and "
-     "personal. Keep under 150 words. This should be a do-not-reply email.Do not add new facts. Do not change "
+     "personal. Keep under 500 words. This should be a do-not-reply email.Do not add new facts. Do not change "
      "deadlines, course names, or scores. Return only the rewritten message, "
      "no preamble."),
     ("user", "Learner context:\n{context}\n\nTemplate:\n{template}"),
