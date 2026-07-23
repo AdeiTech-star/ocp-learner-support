@@ -163,6 +163,20 @@ CREATE TABLE IF NOT EXISTS email_log (
     reopened_canvas     INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS student_risk_signals (
+    user_id                     INTEGER PRIMARY KEY REFERENCES users(user_id),
+    avg_days_from_deadline      REAL,
+    timing_trend                TEXT,
+    days_since_last_login       INTEGER,
+    total_submissions           INTEGER,
+    zero_submissions            INTEGER,
+    engagement_ratio            REAL,
+    gate_approaching            INTEGER,
+    gate_name                   TEXT,
+    days_until_gate             INTEGER,
+    computed_at                 TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_enrollments_course ON enrollments(course_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_user ON enrollments(user_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_course ON assignments(course_id);
@@ -174,3 +188,4 @@ CREATE INDEX IF NOT EXISTS idx_quiz_submissions_user ON quiz_submissions(user_id
 CREATE INDEX IF NOT EXISTS idx_flag_events_user ON flag_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_log_user ON email_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_course_activity_date ON course_activity(activity_date);
+CREATE INDEX IF NOT EXISTS idx_risk_signals_user ON student_risk_signals(user_id);

@@ -18,6 +18,7 @@ from app.ingestion import (
     deduplicate_gate_calendar,
     load_gate_calendar,
 )
+from app.analytics import compute_risk_signals
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def run_pipeline():
         sync_quizzes(client=client, conn=conn)
         sync_student_summaries(client=client, conn=conn)
         sync_course_activity(client=client, conn=conn)
+        compute_risk_signals(conn)
         log.info("Pipeline completed successfully")
     except Exception as e:
         log.exception("Pipeline failed: %s", e)
