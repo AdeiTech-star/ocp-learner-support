@@ -216,3 +216,106 @@ def sync_submissions(client: CanvasClient, conn: psycopg.Connection) -> int:
     conn.commit()
     log.info("Synced %s submissions", count)
     return count
+
+
+def sync_quizzes(client: CanvasClient, conn: psycopg.Connection) -> tuple[int, int]:
+    cur = conn.cursor()
+    quiz_count = 0
+    quiz_submission_count = 0
+
+    for quiz in client.get_paginated(f"/api/v1/courses/{COURSE_ID}/quizzes"):
+        cur.execute(
+            """
+            INSERT INTO quizzes (quiz_id, course_id, title, quiz_type, points_possible, due_at,
+                                  published, question_count, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT(quiz_id) DO UPDATE SET
+                title=excluded.title, quiz_type=excluded.quiz_type, points_possible=excluded.points_possible,
+                due_at=excluded.due_at, published=excluded.published, question_count=excluded.question_count,
+                updated_at=excluded.updated_at
+            """,
+            (
+                quiz.get("id"), COURSE_ID, quiz.get("title"), quiz.get("quiz_type"),
+                quiz.get("points_possible"), quiz.get("due_at"),
+                int(bool(quiz.get("published"))), quiz.get("question_count"), utcnow(),
+            ),
+        )
+        quiz_count += 1
+
+        quiz_id = quiz.get("id")
+        for qs in client.get_paginated(f"/api/v1/courses/{COURSE_ID}/quizzes/{quiz_id}/submissions"):
+            submissions = qs.get("quiz_submissions") if isinstance(qs, dict) and "quiz_submissions" in qs else [qs]
+            for sub in submissions:
+                if not sub.get("user_id"):
+                    continue
+                if sub.get("user_id") == TEST_STUDENT_ID:
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO quiz_submissions (quiz_submission_id, quiz_id, user_id, score, kept_score,
+                                                   attempt, workflow_state, started_at, finished_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(quiz_id, user_id, attempt) DO UPDATE SET
+                        score=excluded.score, kept_score=excluded.kept_score,
+                        workflow_state=excluded.workflow_state, started_at=excluded.started_at,
+                        finished_at=excluded.finished_at, updated_at=excluded.updated_at
+                    """,
+                    (
+                        sub.get("id"), quiz_id, sub.get("user_id"), sub.get("score"),
+                        sub.get("kept_score"), sub.get("attempt"), sub.get("workflow_state"),
+                        sub.get("started_at"), sub.get("finished_at"), utcnow(),
+                    ),
+                )
+                quiz_submission_count += 1
+
+    conn.commit()
+    log.info("Synced %s quizzes / %s quiz submissions", quiz_count, quiz_submission_count)
+    return quiz_count, quiz_submission_count
+
+
+def sync_course_activity(client: CanvasClient, conn: psycopg.Connection) -> int:
+    cur = conn.cursor()
+    count = 0
+    for item in client.get_paginated(
+        f"/api/v1/courses/{COURSE_ID}/analytics/activity"
+    ):
+        if not item.get("date"):
+            continue
+        cur.execute(
+            """
+            INSERT INTO course_activity (activity_date, views, participations)
+            VALUES (%s, %s, %s)
+            ON CONFLICT(activity_date) DO UPDATE SET
+                views=excluded.views,
+                participations=excluded.participations
+            """,
+            (item.get("date"), item.get("views"), item.get("participations"))
+        )
+        count += 1
+    conn.commit()
+    log.info("Synced %s course activity records", count)
+    return count
+
+
+def load_gate_calendar(conn: psycopg.Connection):
+    gates = [
+        (3, "SVD", "2026-07-06",
+         "Singular Value Decomposition - hardest linear algebra concept in Module 1"),
+        (4, "Module 1 Lab", "2026-07-13",
+         "First graded lab - Colab notebook submitted via Gradescope, due Wed 15 Jul"),
+        (5, "Backpropagation", "2026-07-20",
+         "Chain rule applied to neural networks - most students stall here"),
+        (7, "Bayes Theorem", "2026-08-03",
+         "Conditional probability and Bayesian reasoning"),
+        (8, "Entropy / KL Divergence", "2026-08-10",
+         "Information theory concepts - abstract and notation-heavy"),
+    ]
+    cur = conn.cursor()
+    cur.executemany(
+        """INSERT INTO gate_calendar (week_number, gate_name, gate_date, description)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (gate_name) DO NOTHING""",
+        gates,
+    )
+    conn.commit()
+    log.info("Gate calendar loaded")
