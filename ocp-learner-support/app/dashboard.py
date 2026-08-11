@@ -141,12 +141,12 @@ if page == "Cohort Overview":
             "Submitted":   int(row["total_submissions"]) if row["total_submissions"] is not None else 0,
             "Avg Timing":  timing_str,
             "Trend": {
-                "improving": "improving",
-                "worsening": "worsening",
-                "stable": "stable",
-                "insufficient_data": "too few",
-                "no_data": "none yet",
-                None: "none yet"
+                "improving": "Improving",
+                "worsening": "Worsening",
+                "stable": "Stable",
+                "insufficient_data": "Insufficient data",
+                "no_data": "No submissions",
+                None: "No submissions"
             }.get(row["timing_trend"], row["timing_trend"] or "none yet"),
             "Last Login":  silent_str,
             "Page Views":  int(row["page_views"]) if row.get("page_views") is not None else 0,
@@ -189,9 +189,9 @@ elif page == "Student Drill-Down":
     st.title("Student Drill-Down")
 
     users_df = get_df("SELECT user_id, email FROM users ORDER BY user_id")
-    options = [f"{row['user_id']} ({row['email']})" for _, row in users_df.iterrows()]
+    options = [str(row['user_id']) for _, row in users_df.iterrows()]
     selected = st.selectbox("Select a student", options)
-    uid = int(selected.split(" ")[0])
+    uid = int(selected)
 
     col1, col2 = st.columns(2)
 
