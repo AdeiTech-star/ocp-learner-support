@@ -106,44 +106,15 @@ if page == "Cohort Overview":
     yellow_count = sum(1 for v in flag_map.values() if v[0] == "yellow")
     green_count  = len(cohort_df) - red_count - yellow_count
 
-    with st.expander("How to read this dashboard"):
-        st.markdown("""
-        This dashboard shows real-time data pulled from Canvas for AIML04: Math Foundations.
-        Data is refreshed each time the pipeline runs. The Last Sync time in the sidebar shows when data was last updated.
-
-        **Status** — The student's overall risk level based on the most severe active flag.
-        🔴 Red = urgent, needs human attention. 🟡 Yellow = monitor closely. 🟢 Green = on track. ✅ Completed = final score 100%.
-
-        **Submitted** — Number of assignments submitted out of 19 total.
-
-        **Avg Timing** — Average days relative to the deadline across all submitted assignments.
-        Positive (+) means submitted early. Negative (−) means submitted late.
-        Example: +7.3d means this student typically submits 7 days early. −14.1d means 14 days late on average.
-
-        **Trend** — Whether submission timing is improving or getting worse over time.
-        Calculated by comparing the student's earliest submissions to their most recent ones.
-        *Improving* = recent submissions are coming in earlier than earlier ones.
-        *Worsening* = recent submissions are coming in later — the student is drifting behind even if average looks okay.
-        *Insufficient data* = fewer than 3 submissions, not enough to determine direction.
-
-        **Last Login** — Days since the student last did anything in Canvas.
-        Silence is one of the strongest early warning signals.
-
-        **Page Views** — Total course pages viewed. High page views with low submissions means a student is reading but not submitting — a specific barrier worth investigating directly.
-
-        **Final Score** — Overall course score weighted across all 19 assignments including unsubmitted ones.
-        Unsubmitted assignments count as zero. This reflects true course completion, not just performance on submitted work.
-
-        **Gate Alert** — Whether a known hard-concept week (gate) is approaching within 7 days.
-        Gates are weeks identified in the course roadmap where students are most likely to struggle: SVD, Backpropagation, Bayes Theorem, Entropy/KL Divergence, and the Module 1 Lab.
-        Empty when no gate is imminent or all gates have passed.
-        """)
-
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Students", len(cohort_df))
-    col2.metric("🔴 Red", red_count)
-    col3.metric("🟡 Yellow", yellow_count)
-    col4.metric("🟢 Green", green_count)
+    col1.metric("Total Students", len(cohort_df),
+        help="Total number of enrolled students. Test student excluded.")
+    col2.metric("🔴 Red", red_count,
+        help="Students with at least one red flag. Red flags require urgent human attention — the student is severely behind, has gone silent, or is approaching a hard concept week while already late.")
+    col3.metric("🟡 Yellow", yellow_count,
+        help="Students with at least one yellow flag. Yellow flags are warning signals — the student is drifting behind or engaging but not submitting.")
+    col4.metric("🟢 Green", green_count,
+        help="Students with no active flags or a completed final score of 100%.")
 
     st.markdown("---")
 
@@ -190,7 +161,53 @@ if page == "Cohort Overview":
         })
 
     display_df = pd.DataFrame(rows)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Status": st.column_config.TextColumn(
+                "Status",
+                help="Overall risk level based on the worst active flag. 🔴 Red = urgent action needed. 🟡 Yellow = monitor closely. 🟢 Green = on track. ✅ = course completed."
+            ),
+            "Student ID": st.column_config.NumberColumn(
+                "Student ID",
+                help="Canvas student ID. No names are stored in this system for privacy."
+            ),
+            "Submitted": st.column_config.NumberColumn(
+                "Submitted",
+                help="Number of assignments submitted out of 19 total. A student with 0 submissions after several weeks is a strong at-risk signal."
+            ),
+            "Avg Timing": st.column_config.TextColumn(
+                "Avg Timing",
+                help="Average days relative to the deadline across all submitted assignments. Positive (+) means submitted early. Negative (−) means submitted late. Example: −14.1d means this student submits 14 days after the deadline on average."
+            ),
+            "Trend": st.column_config.TextColumn(
+                "Trend",
+                help="Whether submission timing is improving or worsening over time. Compares earliest submissions to most recent ones. A student with a Worsening trend is falling further behind even if their average looks manageable. 'Insufficient data' means fewer than 3 submissions — not enough to determine direction."
+            ),
+            "Last Login": st.column_config.TextColumn(
+                "Last Login",
+                help="How long ago the student last did anything in Canvas. Silence is one of the strongest early warning signals. A student silent for more than 14 days with no submissions triggers a red flag."
+            ),
+            "Page Views": st.column_config.NumberColumn(
+                "Page Views",
+                help="Total course pages viewed since enrollment. High page views with zero submissions means the student is reading the material but something is blocking them from submitting — a different intervention is needed compared to a student who has not opened the course at all."
+            ),
+            "Final Score": st.column_config.TextColumn(
+                "Final Score",
+                help="Overall course score weighted across all 19 assignments including ones not yet submitted. Unsubmitted assignments count as zero. 100% means the course is complete. This is most meaningful at the end of the course when all deadlines have passed."
+            ),
+            "Gate Alert": st.column_config.TextColumn(
+                "Gate Alert",
+                help="Warning when a known hard-concept week is approaching within 7 days. Five gates were identified from the course roadmap: SVD, Module 1 Lab, Backpropagation, Bayes Theorem, and Entropy/KL Divergence. Empty when no gate is imminent or all gates have passed."
+            ),
+            "Flag Reason": st.column_config.TextColumn(
+                "Flag Reason",
+                help="The reason for the most recent flag raised by the detection engine for this student."
+            ),
+        }
+    )
 
     st.markdown("---")
 
@@ -216,6 +233,7 @@ if page == "Cohort Overview":
         )
         fig.update_traces(textposition="top center", marker_size=12)
         st.plotly_chart(fig, use_container_width=True)
+        st.caption("Each point is one student. Top-right = engaged and submitting. Bottom-right = reading but not submitting. Bottom-left = barely active.")
 
 # ── PAGE 2: STUDENT DRILL-DOWN ────────────────────────────────────────────
 elif page == "Student Drill-Down":
@@ -266,7 +284,7 @@ elif page == "Student Drill-Down":
             "days_until_gate": "Days Until Gate",
             "computed_at": "Computed At"
         })
-        st.caption("Risk signals are computed after each pipeline sync. They summarise the six key indicators the flagging engine uses to classify each student.")
+        st.caption("These signals are computed after each pipeline run and drive the flagging engine. Hover over column headers for descriptions.")
         st.dataframe(risk_df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
@@ -300,6 +318,7 @@ elif page == "Student Drill-Down":
             )
             fig2.update_layout(xaxis_tickangle=-45, showlegend=True)
             st.plotly_chart(fig2, use_container_width=True)
+            st.caption("Green bars = submitted before the deadline. Red bars = submitted after the deadline. Bar height shows how many days early or late.")
         else:
             st.info("No submissions recorded for this student yet.")
 
