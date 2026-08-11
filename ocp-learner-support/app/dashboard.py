@@ -74,12 +74,14 @@ if page == "Cohort Overview":
             r.gate_approaching,
             r.gate_name,
             r.days_until_gate,
-            e.current_score,
+            e.final_score,
             e.last_activity_at,
-            ROUND(e.total_activity_time / 3600.0, 1) AS hrs_in_canvas
+            ROUND(e.total_activity_time / 3600.0, 1) AS hrs_in_canvas,
+            ss.page_views
         FROM users u
         LEFT JOIN student_risk_signals r ON u.user_id = r.user_id
         LEFT JOIN enrollments e ON u.user_id = e.user_id
+        LEFT JOIN student_summaries ss ON u.user_id = ss.user_id
         ORDER BY u.user_id
     """)
 
@@ -117,6 +119,8 @@ if page == "Cohort Overview":
     for _, row in cohort_df.iterrows():
         uid = row["user_id"]
         flag_type, flag_reason = flag_map.get(uid, ("green", "No issues detected"))
+        if row.get("final_score") == 100.0:
+            flag_type, flag_reason = "green", "Course completed"
         icon = status_color(flag_type)
         avg_t = row["avg_days_from_deadline"]
         timing_str = f"{avg_t:+.1f}d" if pd.notna(avg_t) else "no data"
@@ -136,10 +140,17 @@ if page == "Cohort Overview":
             "Student ID":  uid,
             "Submitted":   int(row["total_submissions"]) if row["total_submissions"] is not None else 0,
             "Avg Timing":  timing_str,
-            "Trend":       row["timing_trend"] or "no data",
+            "Trend": {
+                "improving": "improving",
+                "worsening": "worsening",
+                "stable": "stable",
+                "insufficient_data": "too few",
+                "no_data": "none yet",
+                None: "none yet"
+            }.get(row["timing_trend"], row["timing_trend"] or "none yet"),
             "Last Login":  silent_str,
-            "Engagement":  f"{row['engagement_ratio']*100:.0f}%" if row["engagement_ratio"] is not None else "0%",
-            "Score":       f"{row['current_score']:.0f}%" if pd.notna(row["current_score"]) else "N/A",
+            "Page Views":  int(row["page_views"]) if row.get("page_views") is not None else 0,
+            "Final Score": f"{row['final_score']:.1f}%" if row["final_score"] is not None and row["final_score"] > 0 else "N/A",
             "Hrs Canvas":  row["hrs_in_canvas"] or 0,
             "Gate Alert":  gate_str,
             "Flag Reason": flag_reason,
@@ -321,7 +332,7 @@ elif page == "Flag Log":
             icon = "🔴 " if row["flag_type"] == "red" else "🟡 "
             resolved = "✅ Resolved" if row["resolved"] else "⏳ Open"
             st.markdown(
-                f"{icon} **User {row['user_id']}** ({row['email']}) — "
+                f"{icon} **User {row['user_id']}** — "
                 f"{row['reason']}  \n"
                 f"*Flagged: {str(row['flagged_at'])[:16]} UTC · {resolved}*"
             )

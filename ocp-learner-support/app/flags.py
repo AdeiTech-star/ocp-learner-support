@@ -55,7 +55,7 @@ def run_flags(conn: psycopg.Connection) -> int:
             r.gate_approaching,
             r.gate_name,
             r.days_until_gate,
-            e.current_score
+            e.final_score
         FROM student_risk_signals r
         LEFT JOIN enrollments e ON r.user_id = e.user_id
     """)
@@ -142,9 +142,9 @@ def run_flags(conn: psycopg.Connection) -> int:
                 log.info("YELLOW Y3: user %s worsening trend, avg %.1fd", user_id, avg_timing)
 
         # Y4: Submitting but score unexpectedly low
-        if total_subs > 0 and current_score is not None and current_score < 70:
+        if total_subs > 0 and current_score is not None and current_score > 0 and current_score < 70:
             if not already_flagged(cur, user_id, "Y4"):
-                insert_flag(cur, user_id, "yellow", f"Y4: Has {total_subs} submissions but current score is {current_score:.1f}%", {
+                insert_flag(cur, user_id, "yellow", f"Y4: Has {total_subs} submissions but final score is {current_score:.1f}%", {
                     "total_submissions": total_subs,
                     "current_score": current_score
                 })
