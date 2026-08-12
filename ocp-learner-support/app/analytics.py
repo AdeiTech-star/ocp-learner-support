@@ -50,7 +50,7 @@ def compute_risk_signals(conn: psycopg.Connection) -> int:
             SELECT days_from_deadline
             FROM submissions
             WHERE user_id = %s AND days_from_deadline IS NOT NULL
-            ORDER BY updated_at ASC
+            ORDER BY submitted_at ASC
         """, (user_id,))
         timing_rows = cur.fetchall()
         deadline_values = [r[0] for r in timing_rows]
@@ -62,13 +62,17 @@ def compute_risk_signals(conn: psycopg.Connection) -> int:
         if deadline_values:
             avg_days = round(sum(deadline_values) / len(deadline_values), 2)
             if len(deadline_values) >= 3:
-                first_half = deadline_values[:len(deadline_values)//2]
-                second_half = deadline_values[len(deadline_values)//2:]
-                first_avg = sum(first_half) / len(first_half)
-                second_avg = sum(second_half) / len(second_half)
-                if second_avg > first_avg + 1:
+                mid = len(deadline_values) // 2
+                first_half = deadline_values[:mid]
+                second_half = deadline_values[mid:]
+                avg_first = sum(first_half) / len(first_half)
+                avg_second = sum(second_half) / len(second_half)
+                diff = avg_second - avg_first
+                # Improving = second half is HIGHER (more positive, less late) than first half
+                # Worsening = second half is LOWER (more negative, more late) than first half
+                if diff > 1:
                     timing_trend = "improving"
-                elif second_avg < first_avg - 1:
+                elif diff < -1:
                     timing_trend = "worsening"
                 else:
                     timing_trend = "stable"
@@ -76,6 +80,13 @@ def compute_risk_signals(conn: psycopg.Connection) -> int:
                 timing_trend = "insufficient_data"
 
         zero_submissions = 1 if total_submissions == 0 else 0
+
+        # Completed students get a distinct trend label, not a risk-implying one
+        cur.execute("SELECT final_score FROM enrollments WHERE user_id = %s", (user_id,))
+        fs_row = cur.fetchone()
+        final_score = fs_row[0] if fs_row and fs_row[0] is not None else 0
+        if final_score == 100.0:
+            timing_trend = "completed"
 
         # Days since last login
         cur.execute("""

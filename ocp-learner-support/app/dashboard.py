@@ -150,6 +150,7 @@ if page == "Cohort Overview":
                 "stable": "Stable",
                 "insufficient_data": "Insufficient data",
                 "no_data": "No submissions",
+                "completed": "Completed ✅",
                 None: "No submissions"
             }.get(row["timing_trend"], row["timing_trend"] or "none yet"),
             "Last Login":  silent_str,
@@ -210,44 +211,33 @@ if page == "Cohort Overview":
     )
 
     st.markdown("---")
-    st.markdown("#### Column guide")
-    st.caption("Features marked with ƒ are calculated values — hover for the formula.")
-
-    legend_data = {
-        "Feature": [
-            "Status", "Student ID", "Submitted", "Avg Timing ƒ",
-            "Trend ƒ", "Last Login", "Page Views", "Final Score ƒ",
-            "Hrs Canvas ƒ", "Gate Alert", "Flag Reason"
-        ],
-        "What it means": [
-            "Overall risk level based on the most severe active flag. 🔴 Red = urgent. 🟡 Yellow = watch. 🟢 Green = on track. ✅ = completed.",
-            "Canvas student ID. Names are not stored in this system.",
-            "Number of assignments submitted out of 19 total.",
-            "Average days relative to the deadline across all submitted assignments. Positive (+) = submitted early. Negative (−) = submitted late.",
-            "Whether submission timing is getting better or worse. Compares the average timing of a student's earliest submissions to their most recent ones.",
-            "How long ago the student last did anything in Canvas.",
-            "Total course pages opened since enrollment.",
-            "Overall course score across all 19 assignments. Unsubmitted assignments count as zero.",
-            "Total hours spent in Canvas since enrollment.",
-            "Warning when a known hard-concept week approaches within 7 days. Based on 5 dates from the course roadmap.",
-            "The reason text from the most recent active flag.",
-        ],
-        "Formula / calculation": [
-            "Worst active flag type in flag_events for this student",
-            "From Canvas enrollment API",
-            "Count of submissions where submitted_at is not null",
-            "avg(deadline_date − submission_date) across all submissions. Deadline comes from the course roadmap (not Canvas — Canvas has no due dates for this course).",
-            "Split submissions in half by order. Compare avg(first half timing) vs avg(second half timing). Improving = second half is >1 day earlier. Worsening = second half is >1 day later. Stable = within 1 day. Insufficient data = fewer than 3 submissions.",
-            "Days since enrollments.last_activity_at (from Canvas enrollments API)",
-            "From Canvas analytics/student_summaries endpoint",
-            "From Canvas enrollments endpoint as final_score. Computed by Canvas as weighted sum across all 19 assignments.",
-            "enrollments.total_activity_time (seconds) ÷ 3600",
-            "gate_calendar.gate_date within 7 days of today. Five gates: SVD (6 Jul), M1 Lab (13 Jul), Backpropagation (20 Jul), Bayes Theorem (3 Aug), Entropy/KL Divergence (10 Aug).",
-            "From flag_events.reason, most recent unresolved flag for this student",
+    with st.expander("📖 Column guide — click any feature to see how it is calculated"):
+        features = [
+            ("Status", "The student's overall risk level based on the most severe active flag.",
+             "🔴 Red = urgent action needed. 🟡 Yellow = monitor closely. 🟢 Green = on track. ✅ Completed = final score 100%."),
+            ("Submitted", "Number of assignments submitted out of 19 total.",
+             "Count of rows in submissions table where submitted_at is not null for this student."),
+            ("Avg Timing", "Average days relative to the deadline across all submitted assignments.",
+             "avg(deadline_date − submitted_at) in days, across all submissions.\n\n+ positive = submitted before deadline (early)\n− negative = submitted after deadline (late)\n\nExample: −14.1d means this student submits 14 days after the deadline on average.\n\nNote: deadlines are from the course roadmap — Canvas does not store due dates for this course."),
+            ("Trend", "Whether submission timing is getting better or worse over time.",
+             "Steps:\n1. Take all days_from_deadline values in chronological order (earliest submission first)\n2. Split into two equal halves\n3. Compare avg(first half) vs avg(second half)\n\nImproving = second half average is more than 1 day HIGHER (less late or more early)\nWorsening = second half average is more than 1 day LOWER (more late or less early)\nStable = difference is within 1 day either way\nInsufficient data = fewer than 3 submissions\nCompleted = final score is 100% (trend no longer meaningful)\n\nExample: A student whose first 4 submissions averaged −2d and whose last 4 averaged −8d is Worsening — each new submission is coming in later than the last."),
+            ("Last Login", "How long ago the student last did anything in Canvas.",
+             "today − enrollments.last_activity_at in days.\n\nSilence for 14+ days with zero submissions triggers a Red R1 flag."),
+            ("Page Views", "Total course pages opened since enrollment.",
+             "Pulled directly from Canvas analytics/student_summaries endpoint.\n\nHigh page views with zero submissions = student is reading but not submitting. A different intervention is needed compared to a student who has not opened the course at all."),
+            ("Final Score", "Overall course score weighted across all 19 assignments, including ones not submitted (which count as zero).",
+             "Computed by Canvas as: sum(assignment_score × weight) across all 19 assignments.\n\n100% = course completed. 5% = very little submitted.\n\nNote: most meaningful at end of course when all deadlines have passed."),
+            ("Hrs Canvas", "Total hours spent in Canvas since enrollment.",
+             "enrollments.total_activity_time (in seconds, from Canvas) ÷ 3600."),
+            ("Gate Alert", "Warning when a hard-concept week approaches within 7 days.",
+             "Five weeks were identified from the AIML04 roadmap where students typically struggle most:\n• SVD — Week 3 (6 Jul)\n• Module 1 Lab — Week 4 (13 Jul)\n• Backpropagation — Week 5 (20 Jul)\n• Bayes Theorem — Week 7 (3 Aug)\n• Entropy / KL Divergence — Week 8 (10 Aug)\n\nAlert fires if gate_date − today ≤ 7 days.\nCurrently empty because all five gates in this cohort have passed."),
+            ("Flag Reason", "The reason text from the most recent active flag for this student.",
+             "From flag_events.reason, selecting the most recent unresolved flag ordered by severity (red before yellow)."),
         ]
-    }
-    legend_df = pd.DataFrame(legend_data)
-    st.dataframe(legend_df, use_container_width=True, hide_index=True)
+
+        for name, what, how in features:
+            with st.expander(f"**{name}**  —  {what}"):
+                st.markdown(how)
 
     st.markdown("---")
 
@@ -327,36 +317,24 @@ elif page == "Student Drill-Down":
         st.caption("These signals are computed after each pipeline run and drive the flagging engine. Hover over column headers for descriptions.")
         st.dataframe(risk_df, use_container_width=True, hide_index=True)
 
-        st.markdown("#### Risk signal guide")
-        drill_legend = {
-            "Signal": [
-                "Avg Days from Deadline", "Trend", "Days Since Login",
-                "Total Submissions", "Zero Submissions", "Engagement Ratio ƒ",
-                "Gate Approaching", "Days Until Gate"
-            ],
-            "What it means": [
-                "Average days early or late across all submissions. Positive = early, negative = late.",
-                "Whether timing is improving or worsening. Compares first half of submissions to second half.",
-                "Days since the student last did anything in Canvas.",
-                "Total number of assignments submitted.",
-                "1 if the student has submitted nothing at all, 0 otherwise.",
-                "This student's page views relative to the most engaged student in the cohort.",
-                "1 if a hard-concept gate week falls within the next 7 days, 0 otherwise.",
-                "Days until the next approaching gate. Only shown when Gate Approaching = 1.",
-            ],
-            "Formula": [
-                "avg(deadline − submitted_at) in days across all submitted assignments",
-                "avg(first half timing) vs avg(second half timing). Improving if second half is >1d earlier.",
-                "today − enrollments.last_activity_at in days",
-                "Count of submissions where submitted_at is not null",
-                "1 if total_submissions = 0, else 0",
-                "student page_views ÷ max(page_views) across all students in cohort",
-                "1 if any gate_calendar.gate_date is within 7 days of today",
-                "gate_calendar.gate_date − today in days",
+        with st.expander("📖 Risk signal guide — click any signal to see how it is calculated"):
+            risk_features = [
+                ("Avg Days from Deadline", "Average days early or late across all submissions.",
+                 "avg(deadline − submitted_at) in days. Positive = early, negative = late."),
+                ("Trend", "Whether timing is improving or worsening.",
+                 "Compares avg of first-half submissions vs avg of second-half (chronological order).\nImproving = second half is >1d less late. Worsening = second half is >1d more late."),
+                ("Days Since Login", "Days since the student last did anything in Canvas.",
+                 "today − enrollments.last_activity_at in days."),
+                ("Total Submissions", "Number of assignments submitted.", "Count of non-null submitted_at values."),
+                ("Zero Submissions", "Whether the student has submitted anything at all.", "1 = zero submissions. 0 = has submitted at least one assignment."),
+                ("Engagement Ratio", "This student's page views relative to the most engaged student in the cohort.",
+                 "student page_views ÷ max(page_views across all students).\n\nNote: this is a relative measure. It shifts as the top student reads more pages."),
+                ("Gate Approaching", "Whether a hard-concept gate falls within the next 7 days.", "1 if any gate_calendar.gate_date is within 7 days of today, else 0."),
+                ("Days Until Gate", "Days until the next approaching gate.", "gate_date − today. Only populated when Gate Approaching = 1."),
             ]
-        }
-        drill_df = pd.DataFrame(drill_legend)
-        st.dataframe(drill_df, use_container_width=True, hide_index=True)
+            for name, what, how in risk_features:
+                with st.expander(f"**{name}**  —  {what}"):
+                    st.markdown(how)
 
     st.markdown("---")
 
