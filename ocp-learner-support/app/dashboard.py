@@ -210,6 +210,46 @@ if page == "Cohort Overview":
     )
 
     st.markdown("---")
+    st.markdown("#### Column guide")
+    st.caption("Features marked with ƒ are calculated values — hover for the formula.")
+
+    legend_data = {
+        "Feature": [
+            "Status", "Student ID", "Submitted", "Avg Timing ƒ",
+            "Trend ƒ", "Last Login", "Page Views", "Final Score ƒ",
+            "Hrs Canvas ƒ", "Gate Alert", "Flag Reason"
+        ],
+        "What it means": [
+            "Overall risk level based on the most severe active flag. 🔴 Red = urgent. 🟡 Yellow = watch. 🟢 Green = on track. ✅ = completed.",
+            "Canvas student ID. Names are not stored in this system.",
+            "Number of assignments submitted out of 19 total.",
+            "Average days relative to the deadline across all submitted assignments. Positive (+) = submitted early. Negative (−) = submitted late.",
+            "Whether submission timing is getting better or worse. Compares the average timing of a student's earliest submissions to their most recent ones.",
+            "How long ago the student last did anything in Canvas.",
+            "Total course pages opened since enrollment.",
+            "Overall course score across all 19 assignments. Unsubmitted assignments count as zero.",
+            "Total hours spent in Canvas since enrollment.",
+            "Warning when a known hard-concept week approaches within 7 days. Based on 5 dates from the course roadmap.",
+            "The reason text from the most recent active flag.",
+        ],
+        "Formula / calculation": [
+            "Worst active flag type in flag_events for this student",
+            "From Canvas enrollment API",
+            "Count of submissions where submitted_at is not null",
+            "avg(deadline_date − submission_date) across all submissions. Deadline comes from the course roadmap (not Canvas — Canvas has no due dates for this course).",
+            "Split submissions in half by order. Compare avg(first half timing) vs avg(second half timing). Improving = second half is >1 day earlier. Worsening = second half is >1 day later. Stable = within 1 day. Insufficient data = fewer than 3 submissions.",
+            "Days since enrollments.last_activity_at (from Canvas enrollments API)",
+            "From Canvas analytics/student_summaries endpoint",
+            "From Canvas enrollments endpoint as final_score. Computed by Canvas as weighted sum across all 19 assignments.",
+            "enrollments.total_activity_time (seconds) ÷ 3600",
+            "gate_calendar.gate_date within 7 days of today. Five gates: SVD (6 Jul), M1 Lab (13 Jul), Backpropagation (20 Jul), Bayes Theorem (3 Aug), Entropy/KL Divergence (10 Aug).",
+            "From flag_events.reason, most recent unresolved flag for this student",
+        ]
+    }
+    legend_df = pd.DataFrame(legend_data)
+    st.dataframe(legend_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
 
     # Engagement chart
     st.subheader("Page Views vs Submissions")
@@ -286,6 +326,37 @@ elif page == "Student Drill-Down":
         })
         st.caption("These signals are computed after each pipeline run and drive the flagging engine. Hover over column headers for descriptions.")
         st.dataframe(risk_df, use_container_width=True, hide_index=True)
+
+        st.markdown("#### Risk signal guide")
+        drill_legend = {
+            "Signal": [
+                "Avg Days from Deadline", "Trend", "Days Since Login",
+                "Total Submissions", "Zero Submissions", "Engagement Ratio ƒ",
+                "Gate Approaching", "Days Until Gate"
+            ],
+            "What it means": [
+                "Average days early or late across all submissions. Positive = early, negative = late.",
+                "Whether timing is improving or worsening. Compares first half of submissions to second half.",
+                "Days since the student last did anything in Canvas.",
+                "Total number of assignments submitted.",
+                "1 if the student has submitted nothing at all, 0 otherwise.",
+                "This student's page views relative to the most engaged student in the cohort.",
+                "1 if a hard-concept gate week falls within the next 7 days, 0 otherwise.",
+                "Days until the next approaching gate. Only shown when Gate Approaching = 1.",
+            ],
+            "Formula": [
+                "avg(deadline − submitted_at) in days across all submitted assignments",
+                "avg(first half timing) vs avg(second half timing). Improving if second half is >1d earlier.",
+                "today − enrollments.last_activity_at in days",
+                "Count of submissions where submitted_at is not null",
+                "1 if total_submissions = 0, else 0",
+                "student page_views ÷ max(page_views) across all students in cohort",
+                "1 if any gate_calendar.gate_date is within 7 days of today",
+                "gate_calendar.gate_date − today in days",
+            ]
+        }
+        drill_df = pd.DataFrame(drill_legend)
+        st.dataframe(drill_df, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -387,6 +458,8 @@ elif page == "Flag Log":
     if id_filter.strip():
         all_flags = all_flags[all_flags["user_id"].astype(str).str.contains(id_filter.strip())]
 
+    st.caption(f"Showing {len(all_flags)} flags")
+
     if all_flags.empty:
         st.info("No flags raised yet.")
     else:
@@ -411,49 +484,149 @@ elif page == "Flag Log":
 # ── PAGE 4: APPROVAL QUEUE ────────────────────────────────────────────────
 elif page == "Approval Queue":
     st.title("Approval Queue")
-    st.markdown("Human-in-the-loop review: all email drafts generated by the AI agent appear here for review before anything is sent to a student.")
+    st.markdown("Human-in-the-loop review: AI-drafted emails appear here for approval before anything is sent to a student.")
 
-    st.info("""
-    **This page is under active development.**
-
-    When complete, it will work as follows:
-
-    1. The AI agent (Nthabiseng's LangChain system) reads each active flag and drafts a personalised support email for that student.
-    2. The draft appears here with the student ID, the flag reason, and the full email text.
-    3. The reviewer — Muhammad or a designated instructor — reads the draft and chooses one of three actions:
-       - **Approve** — send the email exactly as drafted
-       - **Edit then Approve** — modify the text and then send
-       - **Reject** — do not send, close the flag
-    4. For red flags where an email is not sufficient — for example a student who has never logged in — the queue will show an **Escalate** option instead, which creates a direct alert for the instructor with the student's full context for a personal follow-up.
-
-    Nothing is sent to any student without a human making that decision.
-    """)
+    st.warning("**Under construction.** The layout below shows exactly how this page will work once the AI agent is connected. All buttons are disabled until then.", icon="🔧")
 
     st.markdown("---")
-    st.subheader("Current flags awaiting action")
 
-    pending = get_df("""
-        SELECT f.flag_id, f.user_id, f.flag_type, f.reason, f.flagged_at
+    # Pull real open flags to populate the mockup with real data
+    open_flags = get_df("""
+        SELECT f.flag_id, f.user_id, f.flag_type, f.reason, f.flagged_at,
+               e.last_activity_at,
+               r.total_submissions, r.avg_days_from_deadline, r.days_since_last_login
         FROM flag_events f
+        LEFT JOIN student_risk_signals r ON f.user_id = r.user_id
+        LEFT JOIN enrollments e ON f.user_id = e.user_id
         WHERE f.resolved = 0
-        ORDER BY
-            CASE f.flag_type WHEN 'red' THEN 0 ELSE 1 END,
-            f.flagged_at DESC
+        ORDER BY CASE f.flag_type WHEN 'red' THEN 0 ELSE 1 END, f.flagged_at DESC
     """)
 
-    if pending.empty:
-        st.success("No open flags at this time.")
-    else:
-        st.markdown(f"**{len(pending)} open flags** — {len(pending[pending['flag_type']=='red'])} red, {len(pending[pending['flag_type']=='yellow'])} yellow")
-        for _, row in pending.iterrows():
-            icon = "🔴" if row["flag_type"] == "red" else "🟡"
-            with st.container():
-                st.markdown(f"{icon} **Student {row['user_id']}** — {row['reason']}")
-                col1, col2, col3 = st.columns(3)
-                col1.button("✅ Approve draft", key=f"approve_{row['flag_id']}", disabled=True, help="Available once AI agent is connected")
-                col2.button("✏️ Edit and approve", key=f"edit_{row['flag_id']}", disabled=True, help="Available once AI agent is connected")
-                if row["flag_type"] == "red":
-                    col3.button("⚠️ Escalate to instructor", key=f"escalate_{row['flag_id']}", disabled=True, help="For cases requiring direct human contact rather than email")
-                else:
-                    col3.button("❌ Reject", key=f"reject_{row['flag_id']}", disabled=True, help="Available once AI agent is connected")
+    red_ct = len(open_flags[open_flags["flag_type"] == "red"])
+    yel_ct = len(open_flags[open_flags["flag_type"] == "yellow"])
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Awaiting Review", len(open_flags))
+    c2.metric("🔴 Red (urgent)", red_ct)
+    c3.metric("🟡 Yellow", yel_ct)
+
+    st.markdown("---")
+    st.subheader("Drafts awaiting review")
+    st.caption("Red flags appear first. Each card shows the flag reason and a sample email draft. Once the AI agent is connected, the draft will be generated automatically by the LangChain agent using the student's actual data.")
+
+    # Template drafts per flag type
+    def make_draft(row):
+        uid = row["user_id"]
+        subs = int(row["total_submissions"]) if row["total_submissions"] else 0
+        avg = row["avg_days_from_deadline"]
+        silent = row["days_since_last_login"]
+        reason = row["reason"]
+
+        if "R1" in reason:
+            return f"""Hi,
+
+We noticed you have not logged into the AIML04: Math Foundations course recently and have not yet submitted any assignments.
+
+We understand life can be busy, and we want to make sure you have the support you need to complete the course. If you are experiencing any difficulties — technical, personal, or with the course material — please reach out to the course team through Canvas.
+
+The course team is here to help you succeed.
+
+Warm regards,
+The AIML04 Course Team
+
+Please do not reply to this email as it is not monitored."""
+
+        elif "R2" in reason or "R3" in reason:
+            days_str = f"{abs(avg):.0f}" if avg else "several"
+            return f"""Hi,
+
+We wanted to check in with you about your progress in AIML04: Math Foundations. We can see that you have submitted {subs} assignment(s) so far, and some submissions have been arriving later than the weekly deadlines.
+
+With the course wrapping up soon, we want to make sure you have everything you need to complete the remaining work. If you are finding any of the material challenging, the course resources and support channels on Canvas are available to help.
+
+Please do reach out if there is anything we can do to support you.
+
+Warm regards,
+The AIML04 Course Team
+
+Please do not reply to this email as it is not monitored."""
+
+        elif "Y1b" in reason or "Y1" in reason:
+            return f"""Hi,
+
+We noticed that you have been active in the AIML04: Math Foundations course but have not yet submitted any assignments.
+
+If you are working through the material and something is making it difficult to submit, we would love to hear from you. Sometimes there are technical or other barriers we can help resolve quickly.
+
+Feel free to reach out through the Canvas support channels whenever you are ready.
+
+Warm regards,
+The AIML04 Course Team
+
+Please do not reply to this email as it is not monitored."""
+
+        else:
+            return f"""Hi,
+
+We are checking in on your progress in AIML04: Math Foundations. The system has noted some patterns in your submission timing that we wanted to flag to you early, so you have time to adjust before the course concludes.
+
+If you need any support with the material or with managing your time around the deadlines, please use the support channels on Canvas.
+
+Warm regards,
+The AIML04 Course Team
+
+Please do not reply to this email as it is not monitored."""
+
+    for _, row in open_flags.iterrows():
+        icon = "🔴" if row["flag_type"] == "red" else "🟡"
+        with st.container(border=True):
+            col_left, col_right = st.columns([1, 2])
+
+            with col_left:
+                st.markdown(f"### {icon} Student {row['user_id']}")
+                st.markdown(f"**Flag:** {row['reason']}")
+                st.markdown(f"**Raised:** {str(row['flagged_at'])[:16]} UTC")
+                if row["total_submissions"] is not None:
+                    st.markdown(f"**Submitted:** {int(row['total_submissions'])} of 19")
+                if row["days_since_last_login"] is not None:
+                    st.markdown(f"**Last login:** {int(row['days_since_last_login'])} days ago")
+
                 st.markdown("---")
+                st.markdown("**Actions** *(available once AI agent is connected)*")
+                btn_a, btn_b = st.columns(2)
+                with btn_a:
+                    st.button("✅ Approve", key=f"approve_{row['flag_id']}", disabled=True)
+                    st.button("❌ Reject", key=f"reject_{row['flag_id']}", disabled=True)
+                with btn_b:
+                    st.button("✏️ Edit", key=f"edit_{row['flag_id']}", disabled=True)
+                    if row["flag_type"] == "red":
+                        st.button("⚠️ Escalate", key=f"esc_{row['flag_id']}", disabled=True,
+                                 help="For red flags where a direct instructor conversation is needed instead of an email")
+
+            with col_right:
+                st.markdown("**AI-generated draft** *(sample — actual draft generated by LangChain agent)*")
+                draft = make_draft(row)
+                st.text_area(
+                    label="",
+                    value=draft,
+                    height=280,
+                    disabled=True,
+                    key=f"draft_{row['flag_id']}",
+                    label_visibility="collapsed"
+                )
+
+        st.markdown("")
+
+    st.markdown("---")
+    st.markdown("#### How the approval queue works")
+    how_it_works = {
+        "Step": ["1. Flag raised", "2. Agent drafts", "3. Human reviews", "4. Decision", "5. Logged"],
+        "What happens": [
+            "Detection engine raises a flag for a student and writes to flag_events",
+            "LangChain agent reads the flag and generates a personalised email using a Jinja2 template + Groq LLM",
+            "Draft appears here. Reviewer reads the flag reason and the draft.",
+            "Reviewer clicks Approve (send as-is), Edit (modify then send), Reject (do not send), or Escalate (direct instructor contact for red flags)",
+            "Every decision is written to the audit log with the reviewer identity, any edits made, and the final text sent"
+        ]
+    }
+    st.dataframe(pd.DataFrame(how_it_works), use_container_width=True, hide_index=True)
