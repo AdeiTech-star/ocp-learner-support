@@ -5,10 +5,14 @@ from app.config import settings
 from app.agent import personalize
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pathlib import Path
+from app.routes import nudges as nudges_routes
+from app.routes import dashboard as dashboard_routes
 
 
 
 app = FastAPI(title="OCP Learner Support")
+app.include_router(nudges_routes.router)
+app.include_router(dashboard_routes.router)
 
 # Jinja templates. I will need to edit this once we have a flag so we know what to send when(flag)
 TEMPLATE_DIR = Path(__file__).parent / "templates"

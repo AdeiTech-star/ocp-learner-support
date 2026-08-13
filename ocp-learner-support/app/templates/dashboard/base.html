@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Reviewer Dashboard{% endblock %} — OCP Learner Support</title>
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      safelist: [
+        'bg-amber-100', 'text-amber-800',
+        'bg-blue-100',  'text-blue-800',
+        'bg-green-100', 'text-green-800',
+        'bg-slate-200', 'text-slate-700',
+        'bg-red-100',   'text-red-800',
+      ],
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-semibold">OCP Learner Support</h1>
+        <p class="text-sm text-slate-500">Reviewer dashboard</p>
+      </div>
+      <div class="text-sm text-slate-600">
+        Signed in as
+        <span class="font-mono bg-slate-100 px-2 py-0.5 rounded">nthabiseng@test</span>
+      </div>
+    </div>
+    <nav class="max-w-6xl mx-auto px-6">
+      <div class="flex gap-1 -mb-px">
+        {% set tabs = [("review", "Review"), ("audit", "Audit log")] %}
+        {% for slug, label in tabs %}
+          <a href="/dashboard/{{ slug }}"
+             class="px-4 py-2 text-sm border-b-2 {% if active_tab == slug %}border-slate-900 text-slate-900 font-medium{% else %}border-transparent text-slate-500 hover:text-slate-900{% endif %}">
+            {{ label }}
+          </a>
+        {% endfor %}
+      </div>
+    </nav>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Reject reason modal -->
+  <div id="reject-modal"
+       class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+      <h3 class="text-lg font-semibold text-slate-900 mb-1">Reject draft</h3>
+      <p class="text-sm text-slate-500 mb-4">
+        Tell us why. This feedback is captured in the audit log and helps improve the agent.
+      </p>
+      <textarea
+        id="reject-notes"
+        rows="4"
+        placeholder="e.g. Tone is too formal for a first-week learner. The reference to the 'deadline' is wrong — that assignment is not graded."
+        class="w-full text-sm border border-slate-300 rounded px-3 py-2 mb-1 focus:outline-none focus:border-slate-500"></textarea>
+      <p id="reject-error" class="text-xs text-red-600 mb-3 h-4"></p>
+      <div class="flex justify-end gap-2">
+        <button
+          type="button"
+          id="reject-cancel"
+          class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100">
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="reject-confirm"
+          class="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700">
+          Reject draft
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trace viewer modal -->
+  <div id="trace-modal"
+       class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h3 class="text-lg font-semibold text-slate-900">LLM trace</h3>
+          <p class="text-sm text-slate-500 mt-1">
+            Prompt and output for this personalization run.
+          </p>
+        </div>
+        <button
+          type="button"
+          id="trace-close"
+          class="text-slate-400 hover:text-slate-700 text-2xl leading-none">
+          &times;
+        </button>
+      </div>
+      <div id="trace-content" class="text-sm text-slate-500">
+        Loading…
+      </div>
+    </div>
+  </div>
+
+  <script>
+  let pendingReject = null;
+
+  const modal = document.getElementById('reject-modal');
+  const notesInput = document.getElementById('reject-notes');
+  const errorEl = document.getElementById('reject-error');
+
+  function openRejectModal(state) {
+    pendingReject = state;
+    notesInput.value = '';
+    errorEl.textContent = '';
+    modal.classList.remove('hidden');
+    notesInput.focus();
+  }
+
+  function closeRejectModal() {
+    modal.classList.add('hidden');
+    pendingReject = null;
+  }
+
+  document.getElementById('reject-cancel').addEventListener('click', closeRejectModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeRejectModal();
+  });
+
+  document.getElementById('reject-confirm').addEventListener('click', async () => {
+    const notes = notesInput.value.trim();
+    if (notes.length < 10) {
+      errorEl.textContent = 'Please give at least 10 characters explaining the reason.';
+      return;
+    }
+    if (!pendingReject) return;
+
+    const { draftId, card, container } = pendingReject;
+    const indicator = container.querySelector('.js-indicator');
+    const buttons = container.querySelectorAll('.js-action-btn');
+    indicator.classList.remove('hidden');
+    buttons.forEach(b => b.disabled = true);
+    closeRejectModal();
+
+    try {
+      const response = await fetch(`/dashboard/nudges/${draftId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      });
+      if (response.ok) {
+        const html = await response.text();
+        if (html.trim()) card.outerHTML = html; else card.remove();
+      } else {
+        const errorText = await response.text();
+        alert(`Reject failed (${response.status}): ${errorText || 'Unknown error'}`);
+        indicator.classList.add('hidden');
+        buttons.forEach(b => b.disabled = false);
+      }
+    } catch (err) {
+      alert(`Network error: ${err.message}`);
+      indicator.classList.add('hidden');
+      buttons.forEach(b => b.disabled = false);
+    }
+  });
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('.js-action-btn');
+    if (!btn) return;
+
+    const container = btn.closest('[data-draft-id]');
+    const draftId = container.dataset.draftId;
+    const toEmail = container.dataset.toEmail;
+    const action = btn.dataset.action;
+    const card = document.getElementById(`draft-${draftId}`);
+
+    if (action === 'reject') {
+      openRejectModal({ draftId, card, container });
+      return;
+    }
+
+    if (!confirm(`Approve and send this draft to ${toEmail}?`)) return;
+
+    const indicator = container.querySelector('.js-indicator');
+    const buttons = container.querySelectorAll('.js-action-btn');
+    indicator.classList.remove('hidden');
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      const response = await fetch(`/dashboard/nudges/${draftId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        const html = await response.text();
+        if (html.trim()) card.outerHTML = html; else card.remove();
+      } else {
+        const errorText = await response.text();
+        alert(`Action failed (${response.status}): ${errorText || 'Unknown error'}`);
+        indicator.classList.add('hidden');
+        buttons.forEach(b => b.disabled = false);
+      }
+    } catch (err) {
+      alert(`Network error: ${err.message}`);
+      indicator.classList.add('hidden');
+      buttons.forEach(b => b.disabled = false);
+    }
+  });
+
+  const traceModal = document.getElementById('trace-modal');
+  const traceContent = document.getElementById('trace-content');
+
+  function closeTraceModal() {
+    traceModal.classList.add('hidden');
+    traceContent.innerHTML = 'Loading…';
+  }
+
+  document.getElementById('trace-close').addEventListener('click', closeTraceModal);
+  traceModal.addEventListener('click', (e) => {
+    if (e.target === traceModal) closeTraceModal();
+  });
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('.js-view-trace');
+    if (!btn) return;
+    event.preventDefault();
+    const runId = btn.dataset.runId;
+    traceModal.classList.remove('hidden');
+    traceContent.innerHTML = 'Loading…';
+    try {
+      const response = await fetch(`/dashboard/trace/${runId}`);
+      traceContent.innerHTML = await response.text();
+    } catch (err) {
+      traceContent.innerHTML = `<div class="text-sm text-red-700">Failed to load: ${err.message}</div>`;
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (!modal.classList.contains('hidden')) closeRejectModal();
+      if (!traceModal.classList.contains('hidden')) closeTraceModal();
+    }
+  });
+  </script>
+</body>
+</html>

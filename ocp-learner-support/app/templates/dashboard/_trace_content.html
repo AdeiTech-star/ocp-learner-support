@@ -1,0 +1,32 @@
+<div class="space-y-4">
+  <div>
+    <h4 class="text-sm font-semibold text-slate-900 mb-2">Prompt sent to LLM</h4>
+    <div class="bg-slate-50 border border-slate-200 rounded p-3 text-xs font-mono whitespace-pre-wrap text-slate-800 max-h-80 overflow-y-auto">
+{%- if inputs.messages -%}
+{% for msg in inputs.messages %}[{{ msg.role|default('unknown') }}]
+{{ msg.content|default('') }}
+
+{% endfor %}
+{%- else -%}
+{{ inputs|tojson(indent=2) }}
+{%- endif -%}
+    </div>
+  </div>
+
+  <div>
+    <h4 class="text-sm font-semibold text-slate-900 mb-2">LLM output</h4>
+    <div class="bg-slate-50 border border-slate-200 rounded p-3 text-xs font-mono whitespace-pre-wrap text-slate-800 max-h-80 overflow-y-auto">
+{%- if outputs.content -%}
+{{ outputs.content }}
+{%- elif outputs.output -%}
+{{ outputs.output }}
+{%- else -%}
+{{ outputs|tojson(indent=2) }}
+{%- endif -%}
+    </div>
+  </div>
+
+  <p class="text-xs text-slate-400 font-mono">
+    Run ID: {{ run_id }}
+  </p>
+</div>

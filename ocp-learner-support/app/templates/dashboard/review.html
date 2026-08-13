@@ -1,0 +1,57 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Review{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <div class="mb-6 flex items-center gap-4">
+  <button
+    type="button"
+    id="generate-btn"
+    class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-100">
+    + Generate test draft
+  </button>
+  <div id="generate-result"></div>
+</div>
+
+<script>
+document.getElementById('generate-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('generate-btn');
+  const result = document.getElementById('generate-result');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    const response = await fetch('/dashboard/generate-draft', { method: 'POST' });
+    result.innerHTML = await response.text();
+    if (response.ok) {
+      setTimeout(() => window.location.reload(), 800);
+    }
+  } catch (err) {
+    result.innerHTML = `<div class="text-sm text-red-700">Failed: ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Generate test draft';
+  }
+});
+</script>
+  <h2 class="text-2xl font-semibold text-slate-900">Drafts awaiting review</h2>
+  <p class="text-sm text-slate-500 mt-1">
+    {% if drafts %}
+      {{ drafts|length }} draft{{ 's' if drafts|length != 1 else '' }} waiting for approval.
+    {% else %}
+      Nothing waiting right now.
+    {% endif %}
+  </p>
+</div>
+
+{% if drafts %}
+  <div class="space-y-3">
+    {% for draft in drafts %}
+      {% include "dashboard/_draft_row.html" %}
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">
+    <p>All caught up. New drafts will appear here as the agent generates them.</p>
+  </div>
+{% endif %}
+{% endblock %}
