@@ -1,0 +1,19 @@
+Hi {{ learner_name }},
+
+TEMPLATE PENDING — late submission.
+
+Context available to fill in:
+- Course: {{ course_name }}
+- Severity: {{ severity }}
+- Average days late: {{ specific.avg_days_late }}
+- Submissions so far: {{ specific.submission_count }}
+{% if severity == 'red' %}
+This flag fired because average timing is worse than 10 days late with fewer than 3 submissions. Message should acknowledge the gap directly, offer concrete next steps, and make it easy to ask for an extension.
+{% else %}
+This flag fired because average timing is 5–10 days late, or the trend is worsening. Message should note the pattern without judgment and offer support.
+{% endif %}
+
+Please do not reply to this email. If you need to contact the course team, use the support channels on Canvas.
+
+Take care,
+The {{ course_name }} team

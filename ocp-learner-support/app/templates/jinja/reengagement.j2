@@ -1,0 +1,18 @@
+Hi {{ learner_name }},
+
+TEMPLATE PENDING — reengagement.
+
+Context available to fill in:
+- Course: {{ course_name }}
+- Severity: {{ severity }}
+- Days since last activity: {{ specific.days_inactive }}
+{% if severity == 'red' %}
+This flag fired because the learner has zero submissions and hasn't logged in for over 14 days. Message should be direct: name the concern, offer a way back in, low-friction reply option.
+{% else %}
+This flag fired because the learner hasn't logged in for 7–14 days. Message should be gentle: check-in tone, no assumptions about why.
+{% endif %}
+
+Please do not reply to this email. If you need to contact the course team, use the support channels on Canvas.
+
+Take care,
+The {{ course_name }} team
