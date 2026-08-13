@@ -13,3 +13,5 @@ sendgrid>=6.11
 python-dotenv>=1.0
 pydantic>=2.9
 pydantic-settings>=2.5
+streamlit>=1.35.0
+plotly>=5.22.0
