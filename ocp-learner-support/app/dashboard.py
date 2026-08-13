@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from app.config import settings
+import pandas as pd
 
 st.set_page_config(
     page_title="AIML04 Learner Support",
@@ -154,8 +155,7 @@ if page == "Cohort Overview":
                 None: "No submissions"
             }.get(row["timing_trend"], row["timing_trend"] or "none yet"),
             "Last Login":  silent_str,
-            "Page Views":  int(row["page_views"]) if row.get("page_views") is not None else 0,
-            "Final Score": f"{row['final_score']:.1f}%" if row["final_score"] is not None and row["final_score"] > 0 else "N/A",
+"Page Views":  int(row["page_views"]) if pd.notna(row.get("page_views")) else 0,            "Final Score": f"{row['final_score']:.1f}%" if row["final_score"] is not None and row["final_score"] > 0 else "N/A",
             "Hrs Canvas":  row["hrs_in_canvas"] or 0,
             "Gate Alert":  gate_str,
             "Flag Reason": flag_reason,
@@ -236,7 +236,7 @@ if page == "Cohort Overview":
         ]
 
         for name, what, how in features:
-            with st.expander(f"**{name}**  —  {what}"):
+            with st.popover(f"**{name}**  —  {what}"):
                 st.markdown(how)
 
     st.markdown("---")
@@ -286,7 +286,7 @@ elif page == "Student Drill-Down":
     if not enrol_df.empty:
         e = enrol_df.iloc[0]
         col1.metric("Enrollment State", e["enrollment_state"])
-        col1.metric("Hours in Canvas", e["hrs"] or 0)
+        col1.metric("Hours in Canvas", float(e["hrs"]) if e["hrs"] is not None else 0)
         col1.metric("Current Score", f"{e['current_score']:.1f}%" if e["current_score"] else "N/A")
         col2.metric("Last Login", str(e["last_activity_at"])[:10] if e["last_activity_at"] else "Never")
         col2.metric("Final Score", f"{e['final_score']:.2f}%" if e["final_score"] else "N/A")
@@ -333,7 +333,7 @@ elif page == "Student Drill-Down":
                 ("Days Until Gate", "Days until the next approaching gate.", "gate_date − today. Only populated when Gate Approaching = 1."),
             ]
             for name, what, how in risk_features:
-                with st.expander(f"**{name}**  —  {what}"):
+                with st.popover(f"**{name}**  —  {what}"):
                     st.markdown(how)
 
     st.markdown("---")
@@ -461,150 +461,312 @@ elif page == "Flag Log":
 
 # ── PAGE 4: APPROVAL QUEUE ────────────────────────────────────────────────
 elif page == "Approval Queue":
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo("Africa/Kigali")
+
     st.title("Approval Queue")
-    st.markdown("Human-in-the-loop review: AI-drafted emails appear here for approval before anything is sent to a student.")
+    st.markdown(
+        "Human-in-the-loop review: AI-drafted emails appear here for approval "
+        "before anything is sent to a student."
+    )
 
-    st.warning("**Under construction.** The layout below shows exactly how this page will work once the AI agent is connected. All buttons are disabled until then.", icon="🔧")
+    # Reviewer identity in sidebar — shared across both sub-tabs
+    reviewer_email = st.sidebar.text_input(
+        "Your email (reviewer ID)",
+        value=st.session_state.get("reviewer_email", ""),
+        help="Used to record who approved or rejected each draft.",
+    )
+    st.session_state["reviewer_email"] = reviewer_email
 
-    st.markdown("---")
+    review_tab, audit_tab = st.tabs(["Review", "Audit log"])
 
-    # Pull real open flags to populate the mockup with real data
-    open_flags = get_df("""
-        SELECT f.flag_id, f.user_id, f.flag_type, f.reason, f.flagged_at,
-               e.last_activity_at,
-               r.total_submissions, r.avg_days_from_deadline, r.days_since_last_login
-        FROM flag_events f
-        LEFT JOIN student_risk_signals r ON f.user_id = r.user_id
-        LEFT JOIN enrollments e ON f.user_id = e.user_id
-        WHERE f.resolved = 0
-        ORDER BY CASE f.flag_type WHEN 'red' THEN 0 ELSE 1 END, f.flagged_at DESC
-    """)
+    # ── SUB-TAB: REVIEW ──────────────────────────────────────────────
+    with review_tab:
+        if not reviewer_email:
+            st.warning(
+                "Enter your email in the sidebar to approve or reject drafts. "
+                "Your identity is written to the audit log.",
+                icon="🔒",
+            )
 
-    red_ct = len(open_flags[open_flags["flag_type"] == "red"])
-    yel_ct = len(open_flags[open_flags["flag_type"] == "yellow"])
+        drafts_df = get_df("""
+            SELECT
+                n.draft_id, n.nudge_id, n.user_id, n.flag_code,
+                n.nudge_type, n.subject, n.html_body, n.to_email,
+                n.created_at,
+                f.reason AS flag_reason, f.flag_type,
+                r.days_since_last_login, r.total_submissions,
+                r.avg_days_from_deadline
+            FROM nudge_events n
+            LEFT JOIN LATERAL (
+                SELECT reason, flag_type
+                FROM flag_events
+                WHERE user_id = n.user_id
+                  AND resolved = 0
+                  AND SPLIT_PART(reason, ':', 1) = n.flag_code
+                ORDER BY flagged_at DESC
+                LIMIT 1
+            ) f ON TRUE
+            LEFT JOIN student_risk_signals r ON n.user_id = r.user_id
+            WHERE n.delivery_status = 'pending_review'
+              AND n.nudge_id = (
+                  SELECT MAX(nudge_id) FROM nudge_events n2
+                  WHERE n2.draft_id = n.draft_id
+              )
+            ORDER BY
+                CASE f.flag_type WHEN 'red' THEN 0 ELSE 1 END,
+                n.created_at DESC
+        """)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Awaiting Review", len(open_flags))
-    c2.metric("🔴 Red (urgent)", red_ct)
-    c3.metric("🟡 Yellow", yel_ct)
+        red_ct = int((drafts_df["flag_type"] == "red").sum()) if not drafts_df.empty else 0
+        yel_ct = int((drafts_df["flag_type"] == "yellow").sum()) if not drafts_df.empty else 0
 
-    st.markdown("---")
-    st.subheader("Drafts awaiting review")
-    st.caption("Red flags appear first. Each card shows the flag reason and a sample email draft. Once the AI agent is connected, the draft will be generated automatically by the LangChain agent using the student's actual data.")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Awaiting Review", len(drafts_df))
+        c2.metric("🔴 Red (urgent)", red_ct)
+        c3.metric("🟡 Yellow", yel_ct)
 
-    # Template drafts per flag type
-    def make_draft(row):
-        uid = row["user_id"]
-        subs = int(row["total_submissions"]) if row["total_submissions"] else 0
-        avg = row["avg_days_from_deadline"]
-        silent = row["days_since_last_login"]
-        reason = row["reason"]
+        st.markdown("---")
 
-        if "R1" in reason:
-            return f"""Hi,
-
-We noticed you have not logged into the AIML04: Math Foundations course recently and have not yet submitted any assignments.
-
-We understand life can be busy, and we want to make sure you have the support you need to complete the course. If you are experiencing any difficulties — technical, personal, or with the course material — please reach out to the course team through Canvas.
-
-The course team is here to help you succeed.
-
-Warm regards,
-The AIML04 Course Team
-
-Please do not reply to this email as it is not monitored."""
-
-        elif "R2" in reason or "R3" in reason:
-            days_str = f"{abs(avg):.0f}" if avg else "several"
-            return f"""Hi,
-
-We wanted to check in with you about your progress in AIML04: Math Foundations. We can see that you have submitted {subs} assignment(s) so far, and some submissions have been arriving later than the weekly deadlines.
-
-With the course wrapping up soon, we want to make sure you have everything you need to complete the remaining work. If you are finding any of the material challenging, the course resources and support channels on Canvas are available to help.
-
-Please do reach out if there is anything we can do to support you.
-
-Warm regards,
-The AIML04 Course Team
-
-Please do not reply to this email as it is not monitored."""
-
-        elif "Y1b" in reason or "Y1" in reason:
-            return f"""Hi,
-
-We noticed that you have been active in the AIML04: Math Foundations course but have not yet submitted any assignments.
-
-If you are working through the material and something is making it difficult to submit, we would love to hear from you. Sometimes there are technical or other barriers we can help resolve quickly.
-
-Feel free to reach out through the Canvas support channels whenever you are ready.
-
-Warm regards,
-The AIML04 Course Team
-
-Please do not reply to this email as it is not monitored."""
-
+        if drafts_df.empty:
+            st.success(
+                "No drafts awaiting review. Run the pipeline to generate drafts "
+                "from new open flags."
+            )
         else:
-            return f"""Hi,
+            st.subheader("Drafts awaiting review")
+            st.caption(
+                "Red flags appear first. Each draft was generated by the AI agent "
+                "from the student's flag and recent activity."
+            )
 
-We are checking in on your progress in AIML04: Math Foundations. The system has noted some patterns in your submission timing that we wanted to flag to you early, so you have time to adjust before the course concludes.
+            for _, row in drafts_df.iterrows():
+                icon = "🔴" if row["flag_type"] == "red" else "🟡"
+                draft_id = str(row["draft_id"])
 
-If you need any support with the material or with managing your time around the deadlines, please use the support channels on Canvas.
+                with st.container(border=True):
+                    col_left, col_right = st.columns([1, 2])
 
-Warm regards,
-The AIML04 Course Team
+                    with col_left:
+                        st.markdown(f"### {icon} Student {row['user_id']}")
+                        st.markdown(
+                            f"**Flag:** {row['flag_reason'] or row['flag_code']}"
+                        )
+                        st.markdown(f"**Draft created:** {str(row['created_at'])[:16]} UTC")
+                        if pd.notna(row["total_submissions"]):
+                            st.markdown(
+                                f"**Submitted:** {int(row['total_submissions'])} of 19"
+                            )
+                        if pd.notna(row["days_since_last_login"]):
+                            st.markdown(
+                                f"**Last login:** {int(row['days_since_last_login'])} days ago"
+                            )
+                        st.markdown(f"**To:** `{row['to_email']}`")
 
-Please do not reply to this email as it is not monitored."""
+                        st.markdown("---")
+                        st.markdown("**Actions**")
+                        btn_a, btn_b = st.columns(2)
+                        approve_clicked = btn_a.button(
+                            "✅ Approve & send",
+                            key=f"approve_{draft_id}",
+                            disabled=not reviewer_email,
+                            use_container_width=True,
+                        )
+                        reject_clicked = btn_b.button(
+                            "❌ Reject",
+                            key=f"reject_{draft_id}",
+                            disabled=not reviewer_email,
+                            use_container_width=True,
+                        )
 
-    for _, row in open_flags.iterrows():
-        icon = "🔴" if row["flag_type"] == "red" else "🟡"
-        with st.container(border=True):
-            col_left, col_right = st.columns([1, 2])
+                        if reject_clicked:
+                            st.session_state[f"show_reject_{draft_id}"] = True
 
-            with col_left:
-                st.markdown(f"### {icon} Student {row['user_id']}")
-                st.markdown(f"**Flag:** {row['reason']}")
-                st.markdown(f"**Raised:** {str(row['flagged_at'])[:16]} UTC")
-                if row["total_submissions"] is not None:
-                    st.markdown(f"**Submitted:** {int(row['total_submissions'])} of 19")
-                if row["days_since_last_login"] is not None:
-                    st.markdown(f"**Last login:** {int(row['days_since_last_login'])} days ago")
+                        if st.session_state.get(f"show_reject_{draft_id}"):
+                            notes = st.text_area(
+                                "Rejection reason (at least 10 characters)",
+                                key=f"reject_notes_{draft_id}",
+                                placeholder=(
+                                    "e.g. Tone too formal for this student; the "
+                                    "reference to the deadline is wrong."
+                                ),
+                                height=100,
+                            )
+                            confirm, cancel = st.columns(2)
+                            if confirm.button(
+                                "Confirm reject",
+                                key=f"confirm_reject_{draft_id}",
+                                use_container_width=True,
+                            ):
+                                if len(notes.strip()) < 10:
+                                    st.error("Please give at least 10 characters.")
+                                else:
+                                    try:
+                                        from app.nudges import reject_draft
+                                        reject_draft(
+                                            draft_id,
+                                            reviewer_id=reviewer_email,
+                                            notes=notes.strip(),
+                                        )
+                                        st.session_state.pop(f"show_reject_{draft_id}", None)
+                                        st.success(f"Rejected draft {draft_id[:8]}…")
+                                        st.cache_resource.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Reject failed: {e}")
+                            if cancel.button(
+                                "Cancel",
+                                key=f"cancel_reject_{draft_id}",
+                                use_container_width=True,
+                            ):
+                                st.session_state.pop(f"show_reject_{draft_id}", None)
+                                st.rerun()
 
-                st.markdown("---")
-                st.markdown("**Actions** *(available once AI agent is connected)*")
-                btn_a, btn_b = st.columns(2)
-                with btn_a:
-                    st.button("✅ Approve", key=f"approve_{row['flag_id']}", disabled=True)
-                    st.button("❌ Reject", key=f"reject_{row['flag_id']}", disabled=True)
-                with btn_b:
-                    st.button("✏️ Edit", key=f"edit_{row['flag_id']}", disabled=True)
-                    if row["flag_type"] == "red":
-                        st.button("⚠️ Escalate", key=f"esc_{row['flag_id']}", disabled=True,
-                                 help="For red flags where a direct instructor conversation is needed instead of an email")
+                        if approve_clicked:
+                            try:
+                                from app.nudges import send_approved_draft
+                                send_approved_draft(draft_id, reviewer_id=reviewer_email)
+                                st.success(f"Approved and sent draft {draft_id[:8]}…")
+                                st.cache_resource.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Send failed: {e}")
 
-            with col_right:
-                st.markdown("**AI-generated draft** *(sample — actual draft generated by LangChain agent)*")
-                draft = make_draft(row)
-                st.text_area(
-                    label="",
-                    value=draft,
-                    height=280,
-                    disabled=True,
-                    key=f"draft_{row['flag_id']}",
-                    label_visibility="collapsed"
+                    with col_right:
+                        st.markdown("**AI-generated draft**")
+                        st.markdown(f"**Subject:** {row['subject']}")
+                        st.markdown("---")
+                        st.markdown(row["html_body"], unsafe_allow_html=True)
+
+                st.markdown("")
+
+    # ── SUB-TAB: AUDIT LOG ───────────────────────────────────────────
+    with audit_tab:
+        st.subheader("Audit log")
+        st.caption(
+            "Every action taken on a draft — creation, approval, sending, "
+            "rejection — is logged as an append-only row here."
+        )
+
+        status_options = {
+            "All": None,
+            "Pending review": "pending_review",
+            "Approved": "approved",
+            "Sent": "sent",
+            "Rejected": "rejected",
+            "Failed": "failed",
+        }
+
+        col_f, col_l = st.columns([2, 1])
+        with col_f:
+            status_label = st.selectbox(
+                "Filter by status", list(status_options.keys()), index=0
+            )
+        with col_l:
+            limit = st.number_input(
+                "Rows to show", min_value=10, max_value=500, value=100, step=10
+            )
+
+        status_filter = status_options[status_label]
+        where = "WHERE delivery_status = %s" if status_filter else ""
+        params = (status_filter, int(limit)) if status_filter else (int(limit),)
+
+        audit_df = get_df(f"""
+            SELECT nudge_id, draft_id, user_id, flag_code, nudge_type,
+                   delivery_status, reviewer_id, review_notes,
+                   provider_message_id, langsmith_run_id,
+                   delivered_at, created_at
+            FROM nudge_events
+            {where}
+            ORDER BY nudge_id DESC
+            LIMIT %s
+        """, params)
+
+        if audit_df.empty:
+            st.info("No rows for that filter.")
+        else:
+            st.caption(f"Showing {len(audit_df)} row{'s' if len(audit_df) != 1 else ''}.")
+
+            status_icons = {
+                "pending_review": "🟡",
+                "approved": "🔵",
+                "sent": "🟢",
+                "rejected": "⚪",
+                "failed": "🔴",
+            }
+
+            for _, row in audit_df.iterrows():
+                icon = status_icons.get(row["delivery_status"], "·")
+                created = row["created_at"]
+                if hasattr(created, "astimezone"):
+                    created_display = created.astimezone(LOCAL_TZ).strftime("%b %d, %H:%M")
+                else:
+                    created_display = str(created)[:16]
+
+                header = (
+                    f"{icon} **{row['delivery_status'].replace('_', ' ')}**  "
+                    f"·  Student {row['user_id']}  "
+                    f"·  {row['nudge_type'].replace('_', ' ')}  "
+                    f"·  flag `{row['flag_code'] or '—'}`  "
+                    f"·  {created_display}"
                 )
 
-        st.markdown("")
+                with st.popover(header):
+                    left, right = st.columns([1, 1])
+                    with left:
+                        st.markdown(f"**Draft ID:** `{str(row['draft_id'])[:8]}…`")
+                        st.markdown(f"**Reviewer:** {row['reviewer_id'] or '—'}")
+                        if row["provider_message_id"]:
+                            st.markdown(
+                                f"**Resend msg ID:** `{row['provider_message_id']}`"
+                            )
+                        if pd.notna(row["delivered_at"]):
+                            delivered = row["delivered_at"]
+                            if hasattr(delivered, "astimezone"):
+                                delivered_display = delivered.astimezone(LOCAL_TZ).strftime("%b %d, %H:%M")
+                            else:
+                                delivered_display = str(delivered)[:16]
+                            st.markdown(f"**Delivered:** {delivered_display}")
+                        if row["review_notes"]:
+                            st.markdown("**Review notes:**")
+                            st.info(row["review_notes"])
 
-    st.markdown("---")
-    st.markdown("#### How the approval queue works")
-    how_it_works = {
-        "Step": ["1. Flag raised", "2. Agent drafts", "3. Human reviews", "4. Decision", "5. Logged"],
-        "What happens": [
-            "Detection engine raises a flag for a student and writes to flag_events",
-            "LangChain agent reads the flag and generates a personalised email using a Jinja2 template + Groq LLM",
-            "Draft appears here. Reviewer reads the flag reason and the draft.",
-            "Reviewer clicks Approve (send as-is), Edit (modify then send), Reject (do not send), or Escalate (direct instructor contact for red flags)",
-            "Every decision is written to the audit log with the reviewer identity, any edits made, and the final text sent"
-        ]
-    }
-    st.dataframe(pd.DataFrame(how_it_works), use_container_width=True, hide_index=True)
+                    with right:
+                        if row["langsmith_run_id"]:
+                            if st.button(
+                                "View prompt & output",
+                                key=f"trace_{row['nudge_id']}",
+                            ):
+                                st.session_state[f"show_trace_{row['nudge_id']}"] = True
+
+                            if st.session_state.get(f"show_trace_{row['nudge_id']}"):
+                                try:
+                                    from langsmith import Client
+                                    client = Client()
+                                    run = client.read_run(str(row["langsmith_run_id"]))
+
+                                    st.markdown("**Prompt sent to LLM**")
+                                    inputs = run.inputs or {}
+                                    if "messages" in inputs:
+                                        for msg in inputs["messages"]:
+                                            role = msg.get("role", "unknown") if isinstance(msg, dict) else "unknown"
+                                            content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+                                            st.markdown(f"_[{role}]_")
+                                            st.code(content, language=None)
+                                    else:
+                                        st.code(str(inputs), language="json")
+
+                                    st.markdown("**LLM output**")
+                                    outputs = run.outputs or {}
+                                    output_text = (
+                                        outputs.get("content")
+                                        or outputs.get("output")
+                                        or str(outputs)
+                                    )
+                                    st.code(output_text, language=None)
+
+                                    st.caption(f"Run ID: `{row['langsmith_run_id']}`")
+                                except Exception as e:
+                                    st.error(f"Trace unavailable: {e}")
+                        else:
+                            st.caption("No LangSmith trace for this row.")

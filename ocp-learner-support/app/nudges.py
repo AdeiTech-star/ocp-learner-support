@@ -20,6 +20,7 @@ NudgeType = Literal[
     "activity_no_work", "score_dropping",
 ]
 
+
 def create_draft(
     to_email: str,
     subject: str,
@@ -78,6 +79,7 @@ def reject_draft(draft_id: str, reviewer_id: str, notes: str | None = None) -> N
         to_email=draft["to_email"],
         reviewer_id=reviewer_id,
         review_notes=notes,
+        flag_code=draft["flag_code"],
         rendered_template=draft["rendered_template"],
         langsmith_run_id=draft["langsmith_run_id"],
     )
@@ -109,6 +111,7 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
         html_body=draft["html_body"],
         to_email=draft["to_email"],
         reviewer_id=reviewer_id,
+        flag_code=draft["flag_code"],
         rendered_template=draft["rendered_template"],
         langsmith_run_id=draft["langsmith_run_id"],
     )
@@ -134,6 +137,9 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
             reviewer_id=reviewer_id,
             provider_message_id=result.message_id,
             delivered=True,
+            flag_code=draft["flag_code"],
+            rendered_template=draft["rendered_template"],
+            langsmith_run_id=draft["langsmith_run_id"],
         )
         logger.info(
             "Draft %s sent to user %s (resend_id=%s)",
@@ -153,6 +159,9 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
             to_email=draft["to_email"],
             reviewer_id=reviewer_id,
             review_notes=str(e),
+            flag_code=draft["flag_code"],
+            rendered_template=draft["rendered_template"],
+            langsmith_run_id=draft["langsmith_run_id"],
         )
         logger.warning("Draft %s send failed: %s", draft_id, e)
         raise
@@ -166,7 +175,7 @@ def _load_latest_draft_state(draft_id: str) -> dict:
     with psycopg.connect(settings.database_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-            """
+                """
                 SELECT user_id, nudge_type, template_id, variant_id,
                     computation_id, delivery_status, subject, html_body,
                     to_email, flag_code, rendered_template, langsmith_run_id

@@ -6,11 +6,16 @@ from langsmith import traceable, get_current_run_tree
 
 from app.config import settings
 
+import os
+os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+os.environ["LANGSMITH_TRACING"] = str(settings.langsmith_tracing).lower()
+os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+
 
 def get_llm():
     """Return the configured chat model. Provider is swappable via env."""
     if settings.llm_provider == "groq":
-        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3)
+        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, groq_api_key=settings.groq_api_key)
     if settings.llm_provider == "anthropic":
         return ChatAnthropic(model="claude-sonnet-4-5", temperature=0.3)
     if settings.llm_provider == "openai":
