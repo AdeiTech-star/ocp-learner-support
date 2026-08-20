@@ -1,0 +1,90 @@
+# Render Blueprint for the ocp-learner-support project.
+# Deploys: FastAPI API, Streamlit approval dashboard, Postgres — all on free plans.
+# The background worker (app/worker.py) is intentionally NOT included here:
+# Render has no free tier for background workers (Starter plan, $7/mo min).
+# It's currently just a heartbeat stub anyway. Add it back later — see the
+# "worker" service block removed from this file in git history — once it
+# does real work and you're ready to pay for it.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# After connecting this repo as a Blueprint in the Render dashboard, Render
+# will prompt you to fill in every envVar below marked `sync: false` — those
+# are secrets and are intentionally not committed here.
+
+databases:
+  - name: ocp-learner-support-db
+    plan: free
+    databaseName: ocp
+    user: ocp
+
+services:
+  - type: web
+    name: ocp-learner-support-api
+    runtime: python
+    plan: free
+    rootDir: ocp-learner-support
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ocp-learner-support-db
+          property: connectionString
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_PROJECT
+        value: ocp-learner-support
+      - key: CANVAS_API_URL
+        sync: false
+      - key: CANVAS_API_TOKEN
+        sync: false
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: TA_EMAIL
+        sync: false
+
+  - type: web
+    name: ocp-learner-support-dashboard
+    runtime: python
+    plan: free
+    rootDir: ocp-learner-support
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m streamlit run app/dashboard.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ocp-learner-support-db
+          property: connectionString
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_PROJECT
+        value: ocp-learner-support
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: TA_EMAIL
+        sync: false
