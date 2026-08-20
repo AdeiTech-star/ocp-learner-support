@@ -5,9 +5,9 @@ Owned by: Gentille Uwera
 """
 import logging
 import psycopg
-from app.canvas import CanvasClient
+from app.integrations.canvas import CanvasClient
 from app.config import settings
-from app.ingestion import (
+from app.ingestion.sync import (
     sync_students,
     sync_assignments,
     sync_enrollments,
@@ -18,8 +18,9 @@ from app.ingestion import (
     deduplicate_gate_calendar,
     load_gate_calendar,
 )
-from app.analytics import compute_risk_signals
-from app.flags import run_flags
+from app.analytics.analytics import compute_risk_signals
+from app.analytics.flags import run_flags
+from app.nudges.generation import generate_drafts
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ def run_pipeline():
         sync_course_activity(client=client, conn=conn)
         compute_risk_signals(conn)
         run_flags(conn)
+        generate_drafts(conn)
         log.info("Pipeline completed successfully")
     except Exception as e:
         log.exception("Pipeline failed: %s", e)

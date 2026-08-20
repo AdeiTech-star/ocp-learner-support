@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import psycopg
 
-from app.canvas import CanvasClient, COURSE_ID, TEST_STUDENT_ID, get_roadmap_deadline
+from app.integrations.canvas import CanvasClient, COURSE_ID, TEST_STUDENT_ID, get_roadmap_deadline
 
 log = logging.getLogger(__name__)
 

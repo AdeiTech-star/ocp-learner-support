@@ -2,6 +2,63 @@
 -- Owned by: Gentille Uwera
 -- Safe to run on a fresh database. All statements use IF NOT EXISTS.
 
+-- ─────────────────────────────────────────────────────────────────────
+-- PII: name and email only, keyed by user_id. NEVER queried by the
+-- dashboard. Read only by the send step (app/nudges.send_approved_draft
+-- → app/email_student.send_email) to resolve user_id → real address.
+-- Owned by: Nthabiseng
+-- ─────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS student_pii (
+    user_id                 INTEGER PRIMARY KEY REFERENCES users(user_id),
+    full_name               TEXT NOT NULL,
+    email                   TEXT NOT NULL,
+    person_reference_id     TEXT,
+    prefix                  TEXT,
+    most_recent_role        TEXT,
+    most_recent_employer    TEXT,
+    loaded_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_pii_email ON student_pii(email);
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Demographics: everything non-identifying, safe for dashboard joins and
+-- fairness monitoring. Keyed by user_id.
+-- ─────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS student_demographics (
+    user_id                     INTEGER PRIMARY KEY REFERENCES users(user_id),
+    cohort                      TEXT,
+    age_group                   TEXT,
+    country_of_origin           TEXT,
+    employment_status           TEXT,
+    highest_education_level     TEXT,
+    field_of_study              TEXT,
+    university                  TEXT,
+    primary_language            TEXT,
+    sex                         TEXT,
+    immigration_status          TEXT,
+    skill_programming           TEXT,
+    days_per_week               TEXT,
+    skill_genai                 TEXT,
+    has_reliable_internet       TEXT,
+    genai_applied               TEXT,
+    genai_application_context   TEXT,
+    hours_per_week              TEXT,
+    skill_vectors_matrices      TEXT,
+    skill_ml_tools              TEXT,
+    skill_probability_stats     TEXT,
+    programming_languages_used  TEXT,
+    has_laptop_access           TEXT,
+    genai_where_learned         TEXT,
+    vectors_where_learned       TEXT,
+    ml_where_studied            TEXT,
+    ml_where_applied            TEXT,
+    probstats_where_learned     TEXT,
+    loaded_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+
 CREATE TABLE IF NOT EXISTS courses (
     course_id       INTEGER PRIMARY KEY,
     name            TEXT,

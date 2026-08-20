@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # LLM providers
     groq_api_key: str = ""
@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     # Canvas
     canvas_api_url: str = ""
     canvas_api_token: str = ""
+
+    # resend_api_key: str = ""
+    # resend_from_email: str = ""
+
+      # Email
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+
+    ta_email: str = ""
 
 
 settings = Settings()

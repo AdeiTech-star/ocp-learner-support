@@ -2,16 +2,16 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app.config import settings
-from app.agent import personalize
+from app.integrations.agent import personalize
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pathlib import Path
 
 
 
-app = FastAPI(title="OCP Learner Support")
+app = FastAPI(title="CMU Certificates Learner Support")
 
 # Jinja templates. I will need to edit this once we have a flag so we know what to send when(flag)
-TEMPLATE_DIR = Path(__file__).parent / "templates"
+TEMPLATE_DIR = Path(__file__).parent / "templates" / "preview"
 jinja_env = Environment(
     loader=FileSystemLoader(TEMPLATE_DIR),
     undefined=StrictUndefined,
