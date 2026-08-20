@@ -10,6 +10,10 @@ import plotly.express as px
 import streamlit as st
 from app.config import settings
 
+password = st.text_input("Dashboard password", type="password")
+if password != os.getenv("DASHBOARD_PASSWORD"):
+    st.stop()
+    
 os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
 if settings.langsmith_project:
     os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
