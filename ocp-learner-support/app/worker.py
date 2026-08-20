@@ -16,7 +16,7 @@ def main():
     print(f"  LangSmith tracing: {settings.langsmith_tracing}")
 
     while True:
-        # Week 2: poll Postgres jobs table, dispatch to app.agent.personalize()
+        # Week 2: poll Postgres jobs table, dispatch to app.integrations.agent.personalize()
         print("Worker heartbeat...")
         time.sleep(10)
 

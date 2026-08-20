@@ -15,7 +15,7 @@ os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
 def get_llm():
     """Return the configured chat model. Provider is swappable via env."""
     if settings.llm_provider == "groq":
-        return ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, groq_api_key=settings.groq_api_key)
+        return ChatGroq(model="openai/gpt-oss-120b", temperature=0.3, groq_api_key=settings.groq_api_key)
     if settings.llm_provider == "anthropic":
         return ChatAnthropic(model="claude-sonnet-4-5", temperature=0.3)
     if settings.llm_provider == "openai":
@@ -28,6 +28,11 @@ PERSONALIZE_PROMPT = ChatPromptTemplate.from_messages([
      "You rewrite templated learner support messages to sound warm and "
      "personal. Keep under 500 words. This should be a do-not-reply email. "
      "Do not add new facts. Do not change deadlines, course names, or scores. "
+     "IMPORTANT: Preserve the exact placeholder text `___LEARNER_NAME___` "
+     "wherever it appears. Do not replace it with a name, do not change its "
+     "formatting, do not remove or reduce the underscores. Leave it exactly as-is. "
+     "Use blank lines to separate paragraphs. Do not use markdown bold or italic — "
+     "write in plain prose only. "
      "Return only the rewritten message, no preamble."),
     ("user", "Learner context:\n{context}\n\nTemplate:\n{template}"),
 ])

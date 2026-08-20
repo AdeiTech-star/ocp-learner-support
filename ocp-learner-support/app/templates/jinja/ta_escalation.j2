@@ -1,0 +1,22 @@
+Hello,
+
+A learner in the AIML04 course has been escalated for TA follow-up.
+
+Student ID: {{ escalation.student_user_id }}
+Flag: {{ escalation.flag_code }}
+Reviewer: {{ escalation.reviewer_id }}
+Reviewer note: {{ escalation.reviewer_notes }}
+
+Context we have on this student:
+- Days since last login: {{ specific.days_inactive }}
+- Submissions so far: {{ specific.submission_count }}
+- Average days late: {{ specific.avg_days_late }}
+- Current score: {{ specific.current_score }}%
+- Upcoming gate: {{ specific.gate_name }} in {{ specific.days_to_gate }} day(s)
+
+The AI system flagged this student but the reviewer decided that a human touch is needed rather than an automated email. Please reach out directly through Canvas or your preferred channel.
+
+Do not reply to this email; it is not monitored.
+
+Best,
+CMU Certificates Learner Support (automated escalation)

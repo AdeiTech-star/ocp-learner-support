@@ -11,18 +11,17 @@ from typing import Literal
 import psycopg
 
 from app.config import settings
-from app.email_student import EmailSendError, send_email
+from app.integrations.email_student import EmailSendError, send_email
 
 logger = logging.getLogger(__name__)
 
 NudgeType = Literal[
     "reengagement", "late_submission", "gate_ahead",
-    "activity_no_work", "score_dropping",
+    "activity_no_work", "escalation_alert",
 ]
 
 
 def create_draft(
-    to_email: str,
     subject: str,
     html_body: str,
     user_id: int,
@@ -46,7 +45,6 @@ def create_draft(
         delivery_status="pending_review",
         subject=subject,
         html_body=html_body,
-        to_email=to_email,
         flag_code=flag_code,
         rendered_template=rendered_template,
         langsmith_run_id=langsmith_run_id,
@@ -76,7 +74,6 @@ def reject_draft(draft_id: str, reviewer_id: str, notes: str | None = None) -> N
         delivery_status="rejected",
         subject=draft["subject"],
         html_body=draft["html_body"],
-        to_email=draft["to_email"],
         reviewer_id=reviewer_id,
         review_notes=notes,
         flag_code=draft["flag_code"],
@@ -91,6 +88,9 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
 
     Three rows written on the success path: approved, then sent. On failure:
     approved, then failed. Raises EmailSendError after logging failure.
+
+    Email address is resolved from student_pii inside send_email() using
+    user_id — this module never handles PII.
     """
     draft = _load_latest_draft_state(draft_id)
     if draft["delivery_status"] != "pending_review":
@@ -109,7 +109,6 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
         delivery_status="approved",
         subject=draft["subject"],
         html_body=draft["html_body"],
-        to_email=draft["to_email"],
         reviewer_id=reviewer_id,
         flag_code=draft["flag_code"],
         rendered_template=draft["rendered_template"],
@@ -119,7 +118,7 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
 
     try:
         result = send_email(
-            to=draft["to_email"],
+            user_id=draft["user_id"],
             subject=draft["subject"],
             html=draft["html_body"],
         )
@@ -133,7 +132,6 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
             delivery_status="sent",
             subject=draft["subject"],
             html_body=draft["html_body"],
-            to_email=draft["to_email"],
             reviewer_id=reviewer_id,
             provider_message_id=result.message_id,
             delivered=True,
@@ -142,7 +140,7 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
             langsmith_run_id=draft["langsmith_run_id"],
         )
         logger.info(
-            "Draft %s sent to user %s (resend_id=%s)",
+            "Draft %s sent to user %s (message_id=%s)",
             draft_id, draft["user_id"], result.message_id,
         )
     except EmailSendError as e:
@@ -156,7 +154,6 @@ def send_approved_draft(draft_id: str, reviewer_id: str) -> None:
             delivery_status="failed",
             subject=draft["subject"],
             html_body=draft["html_body"],
-            to_email=draft["to_email"],
             reviewer_id=reviewer_id,
             review_notes=str(e),
             flag_code=draft["flag_code"],
@@ -178,7 +175,7 @@ def _load_latest_draft_state(draft_id: str) -> dict:
                 """
                 SELECT user_id, nudge_type, template_id, variant_id,
                     computation_id, delivery_status, subject, html_body,
-                    to_email, flag_code, rendered_template, langsmith_run_id
+                    flag_code, rendered_template, langsmith_run_id
                 FROM nudge_events
                 WHERE draft_id = %s
                 ORDER BY created_at DESC, nudge_id DESC
@@ -192,7 +189,7 @@ def _load_latest_draft_state(draft_id: str) -> dict:
             cols = [
                 "user_id", "nudge_type", "template_id", "variant_id",
                 "computation_id", "delivery_status", "subject", "html_body",
-                "to_email", "flag_code", "rendered_template", "langsmith_run_id",
+                "flag_code", "rendered_template", "langsmith_run_id",
             ]
             return dict(zip(cols, row))
 
@@ -208,7 +205,6 @@ def _insert_row(
     delivery_status: str,
     subject: str | None,
     html_body: str | None,
-    to_email: str | None,
     flag_code: str | None = None,
     rendered_template: str | None = None,
     langsmith_run_id: str | None = None,
@@ -225,13 +221,13 @@ def _insert_row(
                 INSERT INTO nudge_events (
                     draft_id, user_id, computation_id, nudge_type, flag_code,
                     template_id, variant_id, channel, delivery_status,
-                    subject, html_body, to_email, rendered_template,
+                    subject, html_body, rendered_template,
                     langsmith_run_id, reviewer_id, review_notes,
                     provider_message_id, delivered_at
                 )
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, 'email', %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     CASE WHEN %s THEN NOW() ELSE NULL END
                 )
                 RETURNING nudge_id
@@ -239,7 +235,7 @@ def _insert_row(
                 (
                     draft_id, user_id, computation_id, nudge_type, flag_code,
                     template_id, variant_id, delivery_status,
-                    subject, html_body, to_email, rendered_template,
+                    subject, html_body, rendered_template,
                     langsmith_run_id, reviewer_id, review_notes,
                     provider_message_id, delivered,
                 ),

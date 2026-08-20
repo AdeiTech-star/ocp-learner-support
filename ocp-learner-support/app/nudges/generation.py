@@ -13,15 +13,15 @@ import psycopg
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pathlib import Path
 
-from app.agent import personalize
-from app.nudges import create_draft
-from app.nudge_routing import route_for_flag
+from app.integrations.agent import personalize
+from app.nudges.drafts import create_draft
+from app.nudges.routing import route_for_flag
 
 log = logging.getLogger(__name__)
 
 COURSE_NAME = "AIML04: Math Foundations"
 
-TEMPLATE_DIR = Path(__file__).parent / "templates" / "jinja"
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "jinja"
 _jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATE_DIR)),
     undefined=StrictUndefined,
@@ -91,15 +91,20 @@ def _build_context(user_id: int, flag_code: str, conn) -> dict[str, Any]:
     }
 
     return {
-        "learner_name": f"Student {user_id}",  # her schema stores no names
+        "learner_name": "{{LEARNER_NAME}}",  # her schema stores no names
         "course_name": COURSE_NAME,
         "specific": specific,
     }
 
 
 def _text_to_html(text: str) -> str:
-    """Wrap paragraph-separated LLM output in <p> tags."""
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    """Convert LLM output (may include markdown) into HTML paragraphs."""
+    import re
+    # Convert **bold** to <strong>
+    html_text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    # Convert *italic* to <em> (careful not to catch **)
+    html_text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", html_text)
+    paragraphs = [p.strip() for p in html_text.split("\n\n") if p.strip()]
     return "\n".join(f"<p>{p}</p>" for p in paragraphs)
 
 
@@ -144,9 +149,7 @@ def generate_drafts(conn) -> int:
     """
     log.info("Generating drafts for unresolved flags")
 
-    with conn.cursor() as cur:
-        cur.execute("SELECT user_id, email FROM users")
-        email_by_user = dict(cur.fetchall())
+
 
     candidates = _flags_without_drafts(conn)
     log.info("Found %d flag(s) without drafts", len(candidates))
@@ -159,10 +162,8 @@ def generate_drafts(conn) -> int:
             log.warning("Skipping user %s: no routing for flag %r", user_id, flag_code)
             continue
 
-        to_email = email_by_user.get(user_id)
-        if not to_email:
-            log.warning("Skipping user %s: no email on file", user_id)
-            continue
+        
+        
 
         try:
             context = _build_context(user_id, flag_code, conn)
@@ -188,7 +189,7 @@ def generate_drafts(conn) -> int:
 
         subject = _subject_for(route.nudge_type)
         create_draft(
-            to_email=to_email,
+            
             subject=subject,
             html_body=html_body,
             user_id=user_id,
