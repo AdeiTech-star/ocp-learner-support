@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     canvas_api_url: str = ""
     canvas_api_token: str = ""
 
-    # resend_api_key: str = ""
-    # resend_from_email: str = ""
+    resend_api_key: str = ""
+    resend_from_email: str = ""
 
       # Email
     gmail_address: str = ""
