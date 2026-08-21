@@ -5,7 +5,8 @@ from app.config import settings
 from app.integrations.agent import personalize
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pathlib import Path
-
+from fastapi import HTTPException, BackgroundTasks
+import os
 
 
 app = FastAPI(title="CMU Certificates Learner Support")
@@ -53,3 +54,17 @@ def personalize_late_submission(req: LateSubmissionRequest):
         "rendered_template": rendered,
         "personalized_draft": draft,
     }
+
+@app.post("/admin/run-pipeline")
+def trigger_pipeline(secret: str, background_tasks: BackgroundTasks):
+    """
+    Manually trigger the ingestion pipeline.
+    Requires ?secret=<ADMIN_SECRET> query param.
+    Runs in the background so the request returns immediately.
+    """
+    if secret != os.getenv("ADMIN_SECRET"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    # Import inside function to avoid circular imports at startup
+    from app.ingestion.pipeline import run_pipeline
+    background_tasks.add_task(run_pipeline)
+    return {"status": "started", "message": "Pipeline running in background. Check logs for progress."}
