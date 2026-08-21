@@ -9,11 +9,38 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from app.config import settings
-
+import requests
 password = st.text_input("Dashboard password", type="password")
 if password != os.getenv("DASHBOARD_PASSWORD"):
     st.stop()
-    
+
+    API_URL = os.getenv("API_URL", "https://ocp-api-q8qz.onrender.com")
+    ADMIN_SECRET = os.getenv("ADMIN_SECRET")
+    with st.sidebar:
+        st.markdown("### Data Controls")
+        if st.button("🔄 Refresh data from Canvas"):
+            if not ADMIN_SECRET:
+                st.error("ADMIN_SECRET not configured on the dashboard service.")
+            else:
+                try:
+                    r = requests.post(
+                        f"{API_URL}/admin/run-pipeline",
+                        params={"secret": ADMIN_SECRET},
+                        timeout=10,
+                    )
+                    if r.status_code == 200:
+                        st.success("Pipeline started. Refresh the page in ~2 minutes to see updated data.")
+                    elif r.status_code == 403:
+                        st.error("Auth failed. Check that ADMIN_SECRET matches on API and dashboard.")
+                    else:
+                        st.error(f"Pipeline failed to start ({r.status_code}): {r.text}")
+                except requests.exceptions.Timeout:
+                    st.error("Request timed out. API might be waking from sleep — try again in 30 seconds.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+
+
 os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
 if settings.langsmith_project:
     os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
